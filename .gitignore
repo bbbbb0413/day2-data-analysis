@@ -1,2 +1,17 @@
-.venv 
+# 가상환경
+.venv/
 
+# 데이터 — 원본 parquet 66.5MB. 코드가 아니라 입력물이므로 저장소에 넣지 않는다.
+# 실행 전 data/raw/yellow_tripdata_2026-05.parquet 을 직접 배치해야 한다.
+data/
+
+# 파이프라인 산출물 — run_pipeline.py 로 언제든 재생성되므로 추적하지 않는다.
+# 실행 기록(outputs/runs/<run_id>/)과 리포트가 여기 쌓인다.
+outputs/
+
+# 스케줄 실행 로그 (cron 예시가 여기에 쓴다)
+logs/
+
+# 파이썬
+__pycache__/
+*.py[cod]

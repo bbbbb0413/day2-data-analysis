@@ -1,7 +1,11 @@
 # ============================================================================
-# day2-data-pipeline 실행 환경
+# day2-data-analysis 실행 환경
 #   설치 : pip install -r requirements.txt
-#   확인 : python taxi_data_overview.py
+#   실행 : python run_pipeline.py          (data/raw/*.parquet 을 읽는다)
+#
+#   Python 3.11 이상 필요
+#     설정 파일(config/pipeline.toml)을 읽는 tomllib이 3.11부터 표준 라이브러리다.
+#     3.10 이하에서 쓰려면 tomli 를 설치하고 config.py의 import를 바꿔야 한다.
 # ============================================================================
 
 # DataFrame 로딩·집계·기술통계 — 스크립트 전반 (import pandas as pd)
@@ -11,3 +15,7 @@ pandas>=2.2,<3.0
 #   - pd.read_parquet() 의 기본 엔진
 #   - peek_parquet_metadata() 의 pyarrow.parquet (없으면 해당 단계만 건너뜀)
 pyarrow>=15.0
+
+# pandas와의 로딩 결과 비교(EDA) — 멀티스레드 CSV 파서, 지연 평가(scan_csv)
+# NaN과 결측(null)을 구분하므로 결측 원인 규명에도 사용
+polars>=1.0

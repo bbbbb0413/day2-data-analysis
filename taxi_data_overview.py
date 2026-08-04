@@ -49,7 +49,7 @@ import pandas as pd
 # 전역 설정 (경로·컬럼·상수를 한 곳에서만 관리해 중복을 없앤다)
 # ----------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent        # 실행 위치와 무관하게 동작시키기 위함
-DEFAULT_PATH = BASE_DIR / "yellow_tripdata_2026-05.csv"
+DEFAULT_PATH = BASE_DIR / "data" / "raw" / "yellow_tripdata_2026-05.parquet"
 
 # CSV는 타입 정보를 담지 못하므로 읽을 때 직접 알려줘야 한다.
 DATE_COLS = ["tpep_pickup_datetime", "tpep_dropoff_datetime"]
