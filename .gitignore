@@ -1,2 +1,8 @@
 .venv 
 
+# 데이터 파일 및 폴더 무시
+data/
+*.csv
+*.parquet
+*.zip
+*.pkl
