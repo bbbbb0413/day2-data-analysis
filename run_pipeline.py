@@ -8,12 +8,19 @@ NYC Yellow Taxi 정제·EDA 파이프라인 — CLI 진입점
 
 ■ 사용법
   python run_pipeline.py                          전체 실행
+  python run_pipeline.py fetch                     원본만 내려받기
   python run_pipeline.py --steps deduplicate       특정 단계만
   python run_pipeline.py --checkpoint              단계별 중간 산출물 저장
   python run_pipeline.py --config config/2026-06.toml   다른 월 설정으로
   python run_pipeline.py --log-format json         스케줄러·로그 수집기용
   python run_pipeline.py --dry-run                 실행 계획만 출력
+  python run_pipeline.py --force-download          원본을 새로 받아 실행
   python run_pipeline.py compare-loaders           pandas vs polars 로딩 비교
+
+■ 입력 확보
+  data/raw/에 파일이 없으면 config의 [source] url_template에서 자동으로 받는다.
+  이미 있으면 건드리지 않는다. 새 서버·새 컨테이너에서도 저장소만 있으면
+  바로 돌아가게 하기 위함이다.
 
 ■ 종료 코드 (자동화가 읽는 값)
   0  성공 — 모든 품질 게이트 통과
@@ -45,6 +52,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))          # 설치 없이 실행 가능하게
 
 from taxi_pipeline import __version__, load_config          # noqa: E402
+from taxi_pipeline.fetch import build_url, ensure_input      # noqa: E402
 from taxi_pipeline.observability import setup_logging       # noqa: E402
 from taxi_pipeline.report import render_console_summary     # noqa: E402
 from taxi_pipeline.runner import run_pipeline, select_steps # noqa: E402
@@ -61,8 +69,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("command", nargs="?", default="run",
-                   choices=["run", "compare-loaders", "list-steps"],
-                   help="run(기본) | compare-loaders | list-steps")
+                   choices=["run", "fetch", "compare-loaders", "list-steps"],
+                   help="run(기본) | fetch | compare-loaders | list-steps")
     p.add_argument("--config", default=str(ROOT / "config" / "pipeline.toml"),
                    help="설정 파일 경로")
     p.add_argument("--input", help="입력 parquet 경로 (설정값보다 우선)")
@@ -73,6 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="최종 parquet을 저장하지 않는다(검증만 할 때)")
     p.add_argument("--dry-run", action="store_true",
                    help="실행 계획만 출력하고 종료")
+    p.add_argument("--force-download", action="store_true",
+                   help="입력 파일이 이미 있어도 원본을 다시 받는다")
     p.add_argument("--log-level", default="INFO",
                    choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     p.add_argument("--log-format", default="text", choices=["text", "json"],
@@ -179,16 +189,31 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "list-steps":
         return cmd_list_steps()
 
+    if args.command == "fetch":
+        # 파이프라인 없이 입력만 확보한다. 스케줄러에서 다운로드 태스크를
+        # 따로 두거나, 처음 저장소를 받은 사람이 준비만 할 때 쓴다.
+        try:
+            path = ensure_input(cfg, force=args.force_download)
+        except (FileNotFoundError, ValueError) as e:
+            log.error("%s", e)
+            return EXIT_ERROR
+        print(f"입력 준비 완료: {path} ({path.stat().st_size / 1024**2:,.1f} MB)")
+        return EXIT_OK
+
     if args.command == "compare-loaders":
         if not input_path.is_file():
-            log.error("입력 파일이 없습니다: %s", input_path)
+            log.error("입력 파일이 없습니다: %s (먼저 `run_pipeline.py fetch`)", input_path)
             return EXIT_ERROR
         return cmd_compare_loaders(cfg, input_path)
 
     # ---- dry-run: 무엇을 할지만 보여준다 -------------------------------------
     if args.dry_run:
         print(f"설정      : {cfg.source_file}  (sha {cfg.digest})")
-        print(f"입력      : {input_path}")
+        exists = "있음" if input_path.is_file() else "없음"
+        print(f"입력      : {input_path}  [{exists}]")
+        if not input_path.is_file():
+            print(f"  다운로드: {build_url(cfg)}"
+                  f"  (auto_download={cfg.source.auto_download})")
         print(f"기간 기준 : {cfg.month}")
         print(f"소요시간 정책 : {cfg.outliers.duration_policy}")
         print(f"저장      : {'안 함' if args.no_save else cfg.paths.processed}")
@@ -207,7 +232,8 @@ def main(argv: list[str] | None = None) -> int:
             steps=steps,
             checkpoint=args.checkpoint,
             save_output=not args.no_save,
-            input_path=input_path,
+            input_path=Path(args.input).resolve() if args.input else None,
+            force_download=args.force_download,
         )
     except (FileNotFoundError, KeyError, ValueError) as e:
         log.error("%s", e)

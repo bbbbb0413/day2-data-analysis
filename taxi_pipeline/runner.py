@@ -24,6 +24,7 @@ from typing import Any
 import pandas as pd
 
 from .config import Config
+from .fetch import ensure_input
 from .quality import evaluate, failures
 from .report import render_report
 from .steps import PIPELINE, STEPS, Step
@@ -73,10 +74,20 @@ def run_pipeline(
     checkpoint: bool = False,
     save_output: bool = True,
     input_path: Path | None = None,
+    force_download: bool = False,
 ) -> RunResult:
     """파이프라인을 실행한다."""
     started = time.perf_counter()
-    src = input_path or cfg.paths.raw
+
+    # ---- 입력 확보: 없으면 설정된 출처에서 내려받는다 ------------------------
+    # --input으로 파일을 직접 지정한 경우엔 건드리지 않는다. 사용자가 명시한
+    # 파일을 두고 다른 것을 받아오면 안 된다.
+    if input_path:
+        src = input_path
+        if not src.is_file():
+            raise FileNotFoundError(f"지정한 입력 파일이 없습니다: {src}")
+    else:
+        src = ensure_input(cfg, force=force_download)
 
     # ---- 조기 실패: 전체를 읽기 전에 메타데이터로 먼저 검증 ------------------
     # 409만 행을 다 읽은 뒤 "컬럼이 없다"고 죽으면 시간과 메모리를 버린다.

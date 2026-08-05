@@ -290,6 +290,56 @@ def test_numpy_타입이_직렬화된다():
     assert out["e"].startswith("2026-05-01")
 
 
+# ---------------------------------------------------------------- 입력 확보
+def test_URL에_월이_치환된다():
+    """month를 바꾸면 다운로드 URL이 따라가야 한다 (경로·URL 이중 관리 방지)."""
+    from dataclasses import replace
+
+    from taxi_pipeline.fetch import build_url
+
+    assert build_url(CFG).endswith("yellow_tripdata_2026-05.parquet")
+    assert build_url(replace(CFG, month="2026-06")).endswith("2026-06.parquet")
+
+
+def test_파일이_있으면_다운로드하지_않는다():
+    """ensure_input은 기존 파일을 건드리지 않아야 한다.
+
+    네트워크를 타면 테스트가 느리고 불안정해지므로, download를 호출하면
+    바로 실패하도록 바꿔치기해 '호출되지 않음'을 검증한다.
+    """
+    from taxi_pipeline import fetch
+
+    if not CFG.paths.raw.is_file():
+        return                                    # 원본이 없는 환경에서는 건너뛴다
+
+    original = fetch.download
+    fetch.download = lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("파일이 있는데 다운로드를 시도했다"))
+    try:
+        assert fetch.ensure_input(CFG) == CFG.paths.raw
+    finally:
+        fetch.download = original
+
+
+def test_auto_download_꺼져있고_파일_없으면_안내와_함께_실패한다():
+    """네트워크가 막힌 환경에서 조용히 멈추지 않고 명확히 실패해야 한다."""
+    from dataclasses import replace
+
+    from taxi_pipeline import fetch
+
+    cfg = replace(
+        CFG,
+        source=replace(CFG.source, auto_download=False),
+        paths=replace(CFG.paths, raw=ROOT / "data" / "raw" / "__없는파일__.parquet"),
+    )
+    try:
+        fetch.ensure_input(cfg)
+    except FileNotFoundError as e:
+        assert "auto_download" in str(e) and "fetch" in str(e)
+        return
+    raise AssertionError("파일이 없는데 예외가 나지 않았다")
+
+
 # ---------------------------------------------------------------- 설정
 def test_설정_해시는_내용이_같으면_같다():
     a = load_config(ROOT / "config" / "pipeline.toml", root=ROOT)

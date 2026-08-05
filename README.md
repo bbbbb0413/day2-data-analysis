@@ -14,12 +14,18 @@
 ```bash
 pip install -r requirements.txt
 
-# 원본 parquet을 아래 경로에 배치 (66.5MB, git에 포함되지 않음)
-#   data/raw/yellow_tripdata_2026-05.parquet
-
 python run_pipeline.py --dry-run      # 무엇을 할지 먼저 확인
-python run_pipeline.py                # 전체 실행 (약 7초)
-python tests/test_steps.py            # 단위 테스트 19개 (원본 없이 0.5초)
+python run_pipeline.py                # 전체 실행 (원본 자동 다운로드 포함, 약 8초)
+python tests/test_steps.py            # 단위 테스트 22개 (원본 없이 0.5초)
+```
+
+원본 데이터를 미리 받아둘 필요가 없다. `data/raw/`에 파일이 없으면
+NYC TLC 공개 엔드포인트에서 자동으로 내려받는다(66.5MB, 약 1초).
+이미 있으면 건드리지 않는다.
+
+```bash
+python run_pipeline.py fetch            # 원본만 받아두기
+python run_pipeline.py --force-download # 원본이 갱신됐을 때 새로 받기
 ```
 
 정상 실행 시 터미널 마지막에 이렇게 나온다.
@@ -29,6 +35,35 @@ python tests/test_steps.py            # 단위 테스트 19개 (원본 없이 0.
 최종 3,884,622행 (원본 대비 보존율 94.96%)
 리포트: outputs/runs/20260804T232745Z_001fa159e74d_9aa5a1609e2b/report.md
 ```
+
+---
+
+## 입력 데이터
+
+`config/pipeline.toml`의 `[source]`가 출처를 정한다.
+
+```toml
+[source]
+url_template = "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{month}.parquet"
+auto_download = true      # false면 없을 때 받지 않고 안내와 함께 실패
+timeout_sec = 120
+```
+
+`{month}`는 `project.month`로 치환되므로, **다른 달을 처리할 때 `month` 하나만
+바꾸면 저장 경로와 다운로드 URL이 함께 따라간다.**
+
+다운로드는 세 가지를 지킨다.
+
+- **원자적 쓰기** — `.part`로 받아 검증에 통과해야 최종 이름으로 바꾼다.
+  중간에 끊긴 파일이 `data/raw/`에 남으면 다음 실행이 그걸 "파일 있음"으로
+  판단해 깨진 데이터로 돌아버린다.
+- **받은 뒤 검증** — 크기와 parquet 메타데이터(행 수)를 확인한다.
+  HTTP 200인데 본문이 에러 페이지인 경우를 여기서 잡는다.
+- **없을 때만** — 이미 있으면 다시 받지 않는다. 원본이 바뀌면 입력 해시가
+  달라져 매니페스트에 드러난다.
+
+네트워크가 막힌 환경이라면 `auto_download = false`로 두면 된다.
+조용히 멈추지 않고 받을 URL을 알려주며 종료 코드 2로 실패한다.
 
 ---
 
@@ -121,7 +156,12 @@ m["profile"]["describe"]["fare_amount"]["mean"]   # 21.45
 ### 3. 중간 산출물 — `data/interim/` (선택)
 
 `--checkpoint`를 줄 때만 생긴다. 단계마다 parquet을 써서(각 70MB 내외)
-긴 파이프라인을 특정 단계부터 재실행할 수 있게 한다. 기본은 꺼져 있다.
+"이 단계 직후 데이터가 어땠는지"를 사후에 열어볼 수 있게 한다. 기본은 꺼져 있다.
+
+> **아직 없는 기능**: 저장한 중간 산출물을 **다시 읽어 이어서 실행하는
+> `--from <step>`은 구현돼 있지 않다.** 지금은 쓰기 전용 스냅샷이다.
+> 전체 실행이 8초라 재시작의 실익이 없어 미뤄뒀다. 단계가 늘어 실행이
+> 길어지면 그때 붙이면 된다.
 
 ---
 
@@ -133,6 +173,7 @@ day2-data-analysis/
 ├── run_pipeline.py             CLI 진입점 — 인자 파싱, 종료 코드
 ├── taxi_pipeline/
 │   ├── config.py               TOML → dataclass, 설정 해시
+│   ├── fetch.py                원본 확보 (없을 때만 다운로드)
 │   ├── observability.py        로깅(text/json), JSON 직렬화
 │   ├── storage.py              입출력, 실행 기록(lineage)
 │   ├── quality.py              품질 게이트 — 실패 시 종료 코드 1
@@ -145,9 +186,9 @@ day2-data-analysis/
 │       ├── duplicates.py       중복 (문서 §3)
 │       ├── outliers.py         이상치 (문서 §4)
 │       └── profile.py          기본 EDA
-├── tests/test_steps.py         단위 테스트 19개
+├── tests/test_steps.py         단위 테스트 22개
 ├── data/
-│   ├── raw/                    원본 (직접 배치, git 제외)
+│   ├── raw/                    원본 (자동 다운로드, git 제외)
 │   ├── interim/                --checkpoint 시 중간 산출물
 │   └── processed/              ★ 정제 데이터
 └── outputs/runs/<run_id>/      실행 기록
@@ -166,7 +207,7 @@ def 단계(df: DataFrame, cfg: Config) -> StepResult:
 
 파일 읽기·쓰기는 `storage.py`, 출력은 `report.py`가 맡는다. 이 분리 덕분에
 409만 행을 읽지 않고 3행짜리 DataFrame으로 로직을 테스트할 수 있다
-(테스트 19개가 0.5초에 끝난다).
+(테스트 22개가 0.5초에 끝난다).
 
 **2. 임계값은 코드가 아니라 설정에 있다**
 
@@ -217,6 +258,8 @@ def 단계(df: DataFrame, cfg: Config) -> StepResult:
 ## 자주 쓰는 명령
 
 ```bash
+python run_pipeline.py fetch                 # 원본만 내려받기
+python run_pipeline.py --force-download      # 원본을 새로 받아 실행
 python run_pipeline.py list-steps            # 등록된 단계 확인
 python run_pipeline.py --dry-run             # 실행 계획만 출력
 python run_pipeline.py --steps deduplicate   # 특정 단계만
@@ -235,6 +278,7 @@ python run_pipeline.py compare-loaders       # pandas vs polars 로딩 비교
 ```bash
 cp config/pipeline.toml config/pipeline-2026-06.toml
 # month, paths.raw 수정 + check_exact = false (정확값은 2026-05 전용이므로)
+# url_template은 {month}가 자동 치환되므로 손댈 필요 없다
 python run_pipeline.py --config config/pipeline-2026-06.toml
 ```
 

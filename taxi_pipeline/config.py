@@ -70,10 +70,20 @@ class Paths:
 
 
 @dataclass(frozen=True)
+class Source:
+    """원본 데이터 출처. 입력 파일이 없을 때 여기서 받는다."""
+
+    url_template: str
+    auto_download: bool
+    timeout_sec: int
+
+
+@dataclass(frozen=True)
 class Config:
     name: str
     month: str
     paths: Paths
+    source: Source
     columns: Columns
     duplicates: DuplicateRules
     outliers: OutlierRules
@@ -106,11 +116,22 @@ def load_config(path: str | Path, root: Path | None = None) -> Config:
         runs=root / p["runs"],
     )
 
+    # [source]는 나중에 추가된 섹션이라, 없는 설정 파일도 그대로 돌아가게 기본값을 둔다.
+    # auto_download 기본을 False로 두는 이유: 설정에 명시하지 않은 파이프라인이
+    # 갑자기 66MB를 내려받는 것은 놀라운 동작이다. 받으려면 명시해야 한다.
+    src = raw.get("source", {})
+    source = Source(
+        url_template=src.get("url_template", ""),
+        auto_download=bool(src.get("auto_download", False)),
+        timeout_sec=int(src.get("timeout_sec", 120)),
+    )
+
     exp = raw["expectations"]
     return Config(
         name=raw["project"]["name"],
         month=raw["project"]["month"],
         paths=paths,
+        source=source,
         columns=Columns(**raw["columns"]),
         duplicates=DuplicateRules(**raw["duplicates"]),
         outliers=OutlierRules(**raw["outliers"]),
