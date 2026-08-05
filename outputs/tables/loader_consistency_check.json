@@ -1,0 +1,11 @@
+{
+  "same_row_count": true,
+  "same_column_count": true,
+  "same_column_order": true,
+  "same_total_missing": true,
+  "same_duplicate_count": true,
+  "full_rows": 4090836,
+  "analysis_rows": 500000,
+  "analysis_is_sample": true,
+  "analysis_sample_size_setting": 500000
+}

@@ -1,0 +1,47 @@
+{
+  "rows_before_model_filter": 333464,
+  "rows_after_model_filter_and_sample": 200000,
+  "model_sample_size_setting": 200000,
+  "numeric_features": [
+    "passenger_count",
+    "trip_distance",
+    "trip_duration_min",
+    "average_speed_mph",
+    "fare_amount",
+    "extra",
+    "mta_tax",
+    "tolls_amount",
+    "improvement_surcharge",
+    "congestion_surcharge",
+    "airport_fee",
+    "cbd_congestion_fee",
+    "fare_per_mile",
+    "fare_per_minute"
+  ],
+  "categorical_features": [
+    "VendorID",
+    "RatecodeID",
+    "store_and_fwd_flag",
+    "PULocationID",
+    "DOLocationID",
+    "pickup_hour",
+    "pickup_dayofweek",
+    "day_type",
+    "is_rush_hour",
+    "PU_Borough",
+    "DO_Borough"
+  ],
+  "excluded_leakage_or_constant_features": [
+    "calculated_total_from_components",
+    "high_tip",
+    "payment_type",
+    "pre_tip_amount",
+    "quality_flag_count",
+    "tip_amount",
+    "tip_rate",
+    "tip_rate_pct",
+    "total_amount",
+    "total_component_gap"
+  ],
+  "extreme_value_policy": "장거리·고액 값은 유지하며, 음수·비정상 시간 순서처럼 모델 의미가 불명확한 행만 모델 코호트에서 제외"
+}

@@ -1,0 +1,138 @@
+{
+  "baseline_accuracy": 0.5764,
+  "accuracy": 0.56635,
+  "balanced_accuracy": 0.6035448280788116,
+  "precision": 0.4930937328202309,
+  "recall": 0.846966477809254,
+  "f1_score": 0.6233061153578874,
+  "roc_auc": 0.650708280315481,
+  "average_precision": 0.5333773024999613,
+  "confusion_matrix": [
+    [
+      8303,
+      14753
+    ],
+    [
+      2593,
+      14351
+    ]
+  ],
+  "classification_report": {
+    "Below 20%": {
+      "precision": 0.7620227606461086,
+      "recall": 0.3601231783483692,
+      "f1-score": 0.4891022620169651,
+      "support": 23056.0
+    },
+    "20% or more": {
+      "precision": 0.4930937328202309,
+      "recall": 0.846966477809254,
+      "f1-score": 0.6233061153578874,
+      "support": 16944.0
+    },
+    "accuracy": 0.56635,
+    "macro avg": {
+      "precision": 0.6275582467331697,
+      "recall": 0.6035448280788116,
+      "f1-score": 0.5562041886874263,
+      "support": 40000.0
+    },
+    "weighted avg": {
+      "precision": 0.6481044244590668,
+      "recall": 0.56635,
+      "f1-score": 0.5459510142921797,
+      "support": 40000.0
+    }
+  },
+  "classification_report_text": "              precision    recall  f1-score   support\n\n   Below 20%     0.7620    0.3601    0.4891     23056\n 20% or more     0.4931    0.8470    0.6233     16944\n\n    accuracy                         0.5664     40000\n   macro avg     0.6276    0.6035    0.5562     40000\nweighted avg     0.6481    0.5664    0.5460     40000\n",
+  "train_positive_rate_percent": 42.726875,
+  "test_positive_rate_percent": 42.36,
+  "fit_time_seconds": 3.337231625104323,
+  "split_info": {
+    "split_method": "time_ordered_holdout",
+    "train_rows": 160000,
+    "test_rows": 40000,
+    "train_start": "2026-05-01T00:00:09",
+    "train_end": "2026-05-25T14:17:29",
+    "test_start": "2026-05-25T14:17:34",
+    "test_end": "2026-05-31T23:59:57",
+    "reason": "과거 운행으로 학습하고 이후 운행을 평가하여 실제 미래 예측 상황에 가깝게 구성"
+  },
+  "model_info": {
+    "rows_before_model_filter": 333464,
+    "rows_after_model_filter_and_sample": 200000,
+    "model_sample_size_setting": 200000,
+    "numeric_features": [
+      "passenger_count",
+      "trip_distance",
+      "trip_duration_min",
+      "average_speed_mph",
+      "fare_amount",
+      "extra",
+      "mta_tax",
+      "tolls_amount",
+      "improvement_surcharge",
+      "congestion_surcharge",
+      "airport_fee",
+      "cbd_congestion_fee",
+      "fare_per_mile",
+      "fare_per_minute"
+    ],
+    "categorical_features": [
+      "VendorID",
+      "RatecodeID",
+      "store_and_fwd_flag",
+      "PULocationID",
+      "DOLocationID",
+      "pickup_hour",
+      "pickup_dayofweek",
+      "day_type",
+      "is_rush_hour",
+      "PU_Borough",
+      "DO_Borough"
+    ],
+    "excluded_leakage_or_constant_features": [
+      "calculated_total_from_components",
+      "high_tip",
+      "payment_type",
+      "pre_tip_amount",
+      "quality_flag_count",
+      "tip_amount",
+      "tip_rate",
+      "tip_rate_pct",
+      "total_amount",
+      "total_component_gap"
+    ],
+    "extreme_value_policy": "장거리·고액 값은 유지하며, 음수·비정상 시간 순서처럼 모델 의미가 불명확한 행만 모델 코호트에서 제외"
+  },
+  "feature_columns": [
+    "passenger_count",
+    "trip_distance",
+    "trip_duration_min",
+    "average_speed_mph",
+    "fare_amount",
+    "extra",
+    "mta_tax",
+    "tolls_amount",
+    "improvement_surcharge",
+    "congestion_surcharge",
+    "airport_fee",
+    "cbd_congestion_fee",
+    "fare_per_mile",
+    "fare_per_minute",
+    "VendorID",
+    "RatecodeID",
+    "store_and_fwd_flag",
+    "PULocationID",
+    "DOLocationID",
+    "pickup_hour",
+    "pickup_dayofweek",
+    "day_type",
+    "is_rush_hour",
+    "PU_Borough",
+    "DO_Borough"
+  ],
+  "model_name": "LogisticRegression(class_weight='balanced')",
+  "model_file": "/Users/yoonseojun/Desktop/SKALA/python/yellow_taxi_end2end/outputs/models/yellow_taxi_high_tip_pipeline.joblib",
+  "target_definition": "tip_amount / (total_amount - tip_amount) >= 0.20"
+}

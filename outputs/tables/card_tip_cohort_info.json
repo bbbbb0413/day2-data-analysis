@@ -1,0 +1,10 @@
+{
+  "analysis_rows": 500000,
+  "credit_card_rows": 333504,
+  "target_calculable_card_rows": 333464,
+  "excluded_card_rows_due_to_target_source": 40,
+  "positive_class_count": 142831,
+  "positive_class_rate_percent": 42.83250965621476,
+  "high_tip_threshold": 0.2,
+  "tip_rate_over_100_percent_count": 317
+}

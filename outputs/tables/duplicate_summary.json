@@ -1,0 +1,7 @@
+{
+  "rows_before": 500000,
+  "exact_duplicate_rows": 0,
+  "duplicates_removed": 0,
+  "rows_after_duplicate_step": 500000,
+  "drop_exact_duplicates_setting": true
+}

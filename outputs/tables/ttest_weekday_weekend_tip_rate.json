@@ -1,0 +1,33 @@
+{
+  "test_name": "Welch independent two-sample t-test",
+  "variable": "tip_rate_pct",
+  "group1": "Weekday",
+  "group2": "Weekend",
+  "weekday_count": 150000,
+  "weekend_count": 96270,
+  "weekday_mean": 16.872714074095338,
+  "weekend_mean": 17.216962324604207,
+  "weekday_median": 20.0,
+  "weekend_median": 20.0,
+  "mean_difference_weekday_minus_weekend": -0.3442482505088691,
+  "mean_difference_ci95_low": -0.4387278637021293,
+  "mean_difference_ci95_high": -0.2497686373156089,
+  "t_statistic": -7.141418316089282,
+  "p_value": 9.269935471241363e-13,
+  "alpha": 0.05,
+  "is_statistically_significant": true,
+  "cohens_d": -0.030092903704717094,
+  "effect_size_interpretation": "매우 작음",
+  "significance_interpretation": "p-value가 0.05보다 작으므로 평일과 주말의 평균 카드 팁 비율이 같다는 귀무가설을 기각합니다.",
+  "large_sample_caution": "표본이 매우 크면 작은 평균 차이도 유의해질 수 있으므로 p-value뿐 아니라 평균 차이, 신뢰구간, Cohen's d를 함께 해석해야 합니다.",
+  "sensitivity_analysis": {
+    "winsor_quantile": 0.995,
+    "winsor_upper_tip_rate_percent": 39.603960396039604,
+    "weekday_winsor_mean": 16.662986099005582,
+    "weekend_winsor_mean": 16.95060516732836,
+    "t_statistic": -9.041903001952898,
+    "p_value": 1.5522957301047339e-19,
+    "cohens_d": -0.03709887167756969,
+    "effect_size_interpretation": "매우 작음"
+  }
+}
