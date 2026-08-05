@@ -1,16 +1,4 @@
-"""[단계 7] 통계분석 — 문서 03_통계분석_근거.md
-
-기술통계·상관계수를 산출하고, 이동거리와 팁 비율의 관계를 t-검정한다.
-
-★ 검정은 하나만 한다.
-  가설을 여러 개 세워 효과크기가 큰 것을 고르면 그 자체가 선택 편향이다.
-  질문 하나("이동거리가 길면 팁 비율이 낮아지는가")에 집중한다.
-
-★ p-value와 함께 효과크기를 낸다.
-  n이 266만이면 아주 작은 차이도 p < 0.001이 된다. p-value만으로는
-  "유의하다"까지만 말할 수 있고 "차이가 크다"는 말할 수 없다.
-  Cohen's d는 표본 크기에 직접 영향받지 않아 실질적 크기를 나타낸다.
-"""
+"""기술통계, 상관계수, t-test를 계산한다."""
 
 from __future__ import annotations
 
@@ -25,23 +13,15 @@ from .base import StepResult
 
 log = logging.getLogger(__name__)
 
-# float64가 표현할 수 있는 최소 정규값. p-value 하한 표기에 쓴다.
+# p-value가 0으로 계산될 때 사용할 하한을 정의한다.
 P_MIN = float(np.finfo(float).tiny)
 
-# 효과크기 해석 구간. Cohen이 제안한 관례이며 절대 기준이 아니므로 원값도 함께 낸다.
+# Cohen's d 해석 구간을 정의한다.
 _EFFECT_BANDS = ((0.2, "무시 가능"), (0.5, "작음"), (0.8, "중간"))
 
 
 def fmt_p(p: float) -> str:
-    """p-value 표기.
-
-    t 통계량이 -450 수준이면 실제 p는 float64 범위를 벗어나 0.0으로 언더플로된다.
-    "p = 0"은 '차이가 없을 확률이 정확히 0'이라는 뜻이 되어 사실과 다르므로
-    하한을 밝힌다. 로그 스케일(log p)로 바꾸면 언더플로는 사라지지만 보고되는
-    양 자체가 달라지므로, p-value를 그대로 두고 표기만 정확히 한다.
-
-    표기 규칙을 이 함수 하나로 두어 리포트와 로그가 갈라지지 않게 한다.
-    """
+    """p-value를 문자열로 변환한다."""
     return f"p < {P_MIN:.3g}" if p == 0 else f"p = {p:.3g}"
 
 
@@ -54,11 +34,7 @@ def _effect_label(d: float) -> str:
 
 
 def _cohens_d(a: pd.Series, b: pd.Series) -> float:
-    """두 독립표본의 표준화 평균차 (합동표준편차 기준).
-
-    평균 차이를 '표준편차 몇 개분인가'로 바꾼 값이라 단위에 무관하고,
-    p-value와 달리 표본 크기에 직접 영향받지 않는다.
-    """
+    """두 집단의 Cohen's d를 계산한다."""
     na, nb = len(a), len(b)
     if na < 2 or nb < 2:
         return float("nan")
@@ -68,11 +44,7 @@ def _cohens_d(a: pd.Series, b: pd.Series) -> float:
 
 
 def _interpret(r: dict, alpha: float) -> str:
-    """p-value와 효과크기를 교차해 해석 문장을 만든다.
-
-    p-value만으로는 "유의하다"까지만 말할 수 있다. 효과크기를 함께 봐야
-    "유의하지만 실질적 의미는 없다"는 판단이 가능하다.
-    """
+    """p-value와 효과크기를 함께 해석한다."""
     a, b, d = r["group_a"], r["group_b"], r["cohens_d"]
     head = (f"{a['label']}({a['n']:,}건, 평균 {a['mean'] * 100:.2f}%) vs "
             f"{b['label']}({b['n']:,}건, 평균 {b['mean'] * 100:.2f}%) — "
@@ -95,13 +67,12 @@ def statistics_step(df: pd.DataFrame, cfg: Config) -> StepResult:
     st = cfg.statistics
     notes: list[str] = []
 
-    # ---- 기술통계 -------------------------------------------------------
+    # 기술통계를 계산한다.
     cols = [c for c in st.describe_columns if c in df.columns]
     desc = df[cols].describe(percentiles=st.percentiles).T
     describe = {c: {k: float(v) for k, v in row.items()} for c, row in desc.iterrows()}
 
-    # 평균이 중앙값을 크게 웃돌면 평균을 대표값으로 쓸 수 없다는 뜻이다.
-    # 표준편차만으로는 이 비대칭이 드러나지 않으므로 비율을 계산해 알린다.
+    # 평균과 중앙값의 차이가 큰 컬럼을 확인한다.
     skewed = {c: v["mean"] / v["50%"] for c, v in describe.items()
               if v.get("50%", 0) > 0 and v["mean"] / v["50%"] > 1.5}
     if skewed:
@@ -111,10 +82,7 @@ def statistics_step(df: pd.DataFrame, cfg: Config) -> StepResult:
             + ". 오른쪽 꼬리가 길어 평균을 대표값으로 쓰면 전형적인 운행을 "
               "설명하지 못한다.")
 
-    # ---- 범주형 분포 --------------------------------------------------
-    # 코드성 컬럼은 숫자지만 평균을 내면 의미가 없다. 빈도로 봐야 한다.
-    # record_source='full' 한정으로 세는 이유: partial 소스는 승객수·요율 컬럼
-    # 자체가 없어 분모에 넣으면 '결측이 많은 컬럼'처럼 보이게 된다.
+    # 범주형 분포는 full 소스만 사용하여 집계한다.
     full = df[df["record_source"] == "full"] if "record_source" in df.columns else df
     categorical = {}
     for col in cfg.columns.categorical:
@@ -129,9 +97,7 @@ def statistics_step(df: pd.DataFrame, cfg: Config) -> StepResult:
             f"partial 소스는 승객수·요율 컬럼 자체가 없어 분모에 넣으면 "
             f"'결측이 많은 컬럼'처럼 보이게 된다.")
 
-    # ---- 상관계수 -------------------------------------------------------
-    # 피어슨(선형)과 스피어만(순위)을 함께 낸다. 계산은 한 줄 차이인데,
-    # 두 값이 크게 어긋나면 그 자체가 데이터 구조에 대한 정보가 된다.
+    # Pearson과 Spearman 상관계수를 계산한다.
     ccols = [c for c in st.correlation_columns if c in df.columns]
     pearson = df[ccols].corr(method="pearson")
     spearman = df[ccols].corr(method="spearman")
@@ -143,22 +109,16 @@ def statistics_step(df: pd.DataFrame, cfg: Config) -> StepResult:
         f"(차이 {worst[1]:.3f})다. 팁이 0인 건이 대량이라 순위 계산에서 동점이 "
         f"생긴 결과다. 상관은 인과가 아니다.")
 
-    # ---- t-test와 해석 ----------------------------------------------
-    # 검정 대상: 이동거리가 길면 팁 비율이 낮아지는가?
-    #
-    # 카드결제 한정으로 본다. 현금·무료·분쟁 결제는 팁이 100% 0으로 기록되는데,
-    # 실제로 안 준 게 아니라 시스템이 기록하지 않는 것이다. 섞으면 '결제수단 차이'를
-    # '팁 행동 차이'로 오독하게 된다.
+    # 카드결제 데이터로 장거리와 단거리의 팁 비율을 비교한다.
     card = df[df["payment_type"] == 1]
     rate = card["tip_amount"] / card["fare_amount"].replace(0, np.nan)
-    ok = rate.notna() & (rate < 2)      # 요금 0(계산 불가)과 극단값 제외
+    ok = rate.notna() & (rate < 2)      # 계산할 수 없는 값과 극단값을 제외
     rate, dist = rate[ok], card.loc[ok, "trip_distance"]
 
     thr = st.long_trip_threshold
     long, short = rate[dist >= thr], rate[dist < thr]
 
-    # equal_var=False (Welch): 두 집단의 분산·표본 크기가 다를 수 있는데,
-    # Welch는 등분산일 때도 Student와 사실상 같은 결과를 주므로 안전한 기본값이다.
+    # 두 집단의 분산이 다를 수 있으므로 Welch t-test를 사용한다.
     t_stat, p_value = stats.ttest_ind(long, short, equal_var=st.equal_var)
     d = _cohens_d(long, short)
 

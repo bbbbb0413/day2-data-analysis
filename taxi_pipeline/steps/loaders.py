@@ -1,21 +1,4 @@
-"""[단계 1] Pandas vs Polars 로딩 비교
-
-같은 parquet을 두 라이브러리로 읽어 shape·결측·중복이 일치하는지 확인한다.
-이 검증이 통과해야 "이후 분석은 도구 선택과 무관한 데이터 자체의 성질"이라고
-말할 수 있다. 불일치하면 파서 설정부터 다시 봐야 한다.
-
-★ 왜 별도 명령이 아니라 파이프라인 단계인가
-  처음에는 `run_pipeline.py compare-loaders` 라는 별도 명령으로 두었다.
-  그러면 기본 실행에 polars가 등장하지 않고 비교 결과가 report.md에도
-  실리지 않는다. 리포트만 읽는 사람은 이 검증이 있었는지조차 알 수 없다.
-
-★ 비용
-  parquet을 polars로 한 번 더 읽는다. 실측 0.05초 수준이라 부담이 없다.
-  pandas가 읽은 DataFrame은 runner가 이미 갖고 있으므로 그것과 대조한다.
-
-★ 이 단계는 DataFrame을 바꾸지 않는다.
-  비교만 하고 pandas가 읽은 것을 그대로 다음 단계로 넘긴다.
-"""
+"""Pandas와 Polars의 parquet 로딩 결과를 비교합니다."""
 
 from __future__ import annotations
 

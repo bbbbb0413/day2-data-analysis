@@ -1,16 +1,4 @@
-"""오케스트레이션 — 단계를 순서대로 돌리고 기록을 남긴다.
-
-runner는 '무엇을 하는지' 모른다. 단계 목록을 받아 돌리고, 시간을 재고,
-지표를 모으고, 실패하면 어디서 멈췄는지 기록할 뿐이다.
-분석 로직이 runner에 스며들지 않게 하는 것이 이 구조의 핵심이다.
-
-자동화에 필요한 것들이 여기 모여 있다.
-  - 단계별 소요 시간과 행 수 변화 기록
-  - --checkpoint : 중간 산출물 저장 (긴 파이프라인의 재시작 지점)
-  - --steps      : 일부 단계만 실행 (디버깅·부분 재처리)
-  - 품질 게이트 실패 시 종료 코드 1
-  - 매니페스트 : 입력 해시·설정 해시·산출물 경로
-"""
+"""등록된 파이프라인 단계를 순서대로 실행하고 결과를 기록합니다."""
 
 from __future__ import annotations
 
@@ -36,32 +24,27 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class RunResult:
-    """실행 한 건의 결과. CLI가 종료 코드를 정할 때 쓴다."""
+    """파이프라인 한 번의 실행 결과를 저장한다."""
 
     run_id: str
     manifest: RunManifest
     metrics: dict[str, dict] = field(default_factory=dict)
     notes: dict[str, list[str]] = field(default_factory=dict)
-    # 단계별로 저장된 파일 산출물 (차트 등). 리포트가 이것을 보고 임베드한다.
+    # 단계별 파일 산출물 정보를 저장한다.
     artifacts: dict[str, list[dict]] = field(default_factory=dict)
-    # 게이트 결과를 결과 객체에 담아 CLI가 재평가하지 않게 한다.
-    # 두 번 평가하면 로그에 같은 내용이 두 번 찍히고, 그 사이 값이 달라질 여지도 생긴다.
+    # 품질 게이트 결과를 저장하여 중복 평가를 막는다.
     gates: list = field(default_factory=list)
     gate_failures: list[str] = field(default_factory=list)
     output_path: Path | None = None
 
     @property
     def ok(self) -> bool:
-        """성공했고 게이트도 전부 통과했는가. CLI가 종료 코드를 정할 때 쓴다."""
+        """실행이 성공하고 품질 게이트를 통과했는지 반환한다."""
         return self.manifest.status == "success" and not self.gate_failures
 
 
 def select_steps(names: list[str] | None) -> list[Step]:
-    """실행할 단계를 고른다.
-
-    이름을 주면 그 단계만, 안 주면 전체. 정의된 순서는 유지한다
-    (사용자가 --steps outliers,duplicates 로 줘도 의존 순서가 깨지지 않게).
-    """
+    """지정한 단계만 등록 순서대로 반환하며, 지정하지 않으면 전체 단계를 반환한다."""
     if not names:
         return list(PIPELINE)
     unknown = [n for n in names if n not in STEPS]
@@ -82,9 +65,7 @@ def run_pipeline(
     """파이프라인을 실행한다."""
     started = time.perf_counter()
 
-    # ---- 입력 확보: 없으면 설정된 출처에서 내려받는다 ------------------------
-    # --input으로 파일을 직접 지정한 경우엔 건드리지 않는다. 사용자가 명시한
-    # 파일을 두고 다른 것을 받아오면 안 된다.
+    # 입력 파일을 준비한다.
     if input_path:
         src = input_path
         if not src.is_file():
@@ -92,8 +73,7 @@ def run_pipeline(
     else:
         src = ensure_input(cfg, force=force_download)
 
-    # ---- 조기 실패: 전체를 읽기 전에 메타데이터로 먼저 검증 ------------------
-    # 409만 행을 다 읽은 뒤 "컬럼이 없다"고 죽으면 시간과 메모리를 버린다.
+    # parquet 메타데이터로 필수 컬럼을 확인한다.
     meta = peek_metadata(src)
     required = set(cfg.duplicates.key) | {"trip_distance", "fare_amount", "total_amount"}
     if missing := sorted(required - set(meta["columns"])):
@@ -134,16 +114,11 @@ def run_pipeline(
             result.metrics[step.name] = out.metrics
             result.notes[step.name] = out.notes
 
-            # ---- 산출물 저장 (차트·모델 등) ----------------------------------
-            # 단계는 '저장하는 방법'만 넘기고 경로는 여기서 정한다.
-            # run_id 디렉터리 안에 두어야 실행마다 격리되고, report.md가 같은
-            # 디렉터리에 있으므로 상대경로 figures/x.png가 그대로 동작한다.
+            # 단계별 산출물을 실행 폴더에 저장한다.
             if out.artifacts:
                 saved = []
                 for art in out.artifacts:
-                    # 차트는 figures/ 하위에 모으고, 모델 같은 다른 산출물은
-                    # 실행 디렉터리 바로 아래에 둔다. 모델을 figures/에 넣으면
-                    # 이름과 내용이 어긋나 나중에 찾기 어렵다.
+                    # 차트는 figures 폴더에 저장하고 나머지 산출물은 실행 폴더에 저장한다.
                     rel = f"figures/{art.name}" if art.kind in ("figure", "plotly") \
                         else art.name
                     target = store.dir / rel
@@ -165,28 +140,25 @@ def run_pipeline(
             log.info("─ %s 완료 (%.2f초, %s → %s행)",
                      step.name, elapsed, f"{rows_in:,}", f"{len(df):,}")
 
-            # 중간 산출물: 긴 파이프라인에서 특정 단계부터 재실행할 때의 시작점.
-            # 매 단계 70MB씩 쓰므로 기본은 꺼 둔다.
+            # 변경 단계의 중간 상태를 parquet으로 저장한다.
             if checkpoint and step.mutates:
                 write_parquet(df, cfg.paths.interim / f"{step.name}.parquet")
 
-        # ---- 산출물 저장 -----------------------------------------------------
+        # 최종 정제 데이터를 저장한다.
         if save_output:
             out_path = cfg.paths.processed / f"yellow_{cfg.month}_clean.parquet"
             write_parquet(df, out_path)
             result.output_path = out_path
             manifest.outputs["processed"] = str(out_path)
 
-        # ---- 품질 게이트 -----------------------------------------------------
+        # 품질 게이트를 검사한다.
         gates = evaluate(result.metrics, cfg)
         result.gates = gates
         result.gate_failures = failures(gates)
         manifest.gate_failures = result.gate_failures
         manifest.status = "success" if not result.gate_failures else "failed"
 
-        # ---- 기록 -------------------------------------------------------------
-        # 소요 시간을 리포트 렌더링 '전에' 채운다. finally에서만 채우면
-        # 리포트에는 아직 None인 값이 실려 "소요 -"로 남는다.
+        # 리포트를 생성하기 전에 실행 시간을 기록한다.
         manifest.finished_at = datetime.now(timezone.utc).isoformat()
         manifest.duration_sec = round(time.perf_counter() - started, 3)
 

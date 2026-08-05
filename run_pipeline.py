@@ -1,45 +1,4 @@
-#!/usr/bin/env python
-"""
-================================================================================
-NYC Yellow Taxi 정제·EDA 파이프라인 — CLI 진입점
-파일명 : run_pipeline.py
-작성일 : 2026-08-05
-================================================================================
-
-■ 사용법
-  python run_pipeline.py                          전체 실행
-  python run_pipeline.py fetch                     원본만 내려받기
-  python run_pipeline.py --steps deduplicate       특정 단계만
-  python run_pipeline.py --checkpoint              단계별 중간 산출물 저장
-  python run_pipeline.py --config config/2026-06.toml   다른 월 설정으로
-  python run_pipeline.py --log-format json         스케줄러·로그 수집기용
-  python run_pipeline.py --dry-run                 실행 계획만 출력
-  python run_pipeline.py --force-download          원본을 새로 받아 실행
-  python run_pipeline.py compare-loaders           로딩 비교 상세 출력(파이프라인에도 포함)
-
-■ 입력 확보
-  data/raw/에 파일이 없으면 config의 [source] url_template에서 자동으로 받는다.
-  이미 있으면 건드리지 않는다. 새 서버·새 컨테이너에서도 저장소만 있으면
-  바로 돌아가게 하기 위함이다.
-
-■ 종료 코드 (자동화가 읽는 값)
-  0  성공 — 모든 품질 게이트 통과
-  1  품질 게이트 실패 — 산출물은 생겼지만 신뢰할 수 없다
-  2  실행 오류 — 파일 없음·설정 오류·예외
-
-  cron·Airflow·GitHub Actions 모두 종료 코드로 성공/실패를 판단한다.
-  0이 아니면 알림이 울리도록 스케줄러에 걸면 된다.
-
-■ 스케줄 등록 예시
-  # 매월 5일 새벽 3시
-  0 3 5 * * cd /path/to/day2-data-analysis && \
-      .venv/bin/python run_pipeline.py --log-format json >> logs/cron.log 2>&1
-
-■ 참고 문서
-  결측치_중복_처리기준.md  — 모든 임계값의 근거
-  README.md               — 구조 설명
-================================================================================
-"""
+"""NYC Yellow Taxi 파이프라인을 실행하는 CLI 파일이다."""
 
 from __future__ import annotations
 
@@ -49,7 +8,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT))          # 설치 없이 실행 가능하게
+sys.path.insert(0, str(ROOT))          # 프로젝트 루트를 import 경로에 추가한다.
 
 from taxi_pipeline import __version__, load_config          # noqa: E402
 from taxi_pipeline.fetch import build_url, ensure_input      # noqa: E402
@@ -63,7 +22,7 @@ EXIT_OK, EXIT_GATE_FAILED, EXIT_ERROR = 0, 1, 2
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """CLI 인자 정의. 스케줄러가 쓰는 옵션이므로 기본값을 보수적으로 둔다."""
+    """CLI 옵션을 정의한다."""
     p = argparse.ArgumentParser(
         prog="run_pipeline",
         description="NYC Yellow Taxi 정제·EDA 파이프라인",
@@ -93,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def cmd_list_steps() -> int:
-    """등록된 단계를 보여준다. 파이프라인 구성 확인용."""
+    """등록된 단계를 출력한다."""
     from taxi_pipeline.steps import PIPELINE
 
     print("등록된 단계 (실행 순서):\n")
@@ -104,18 +63,13 @@ def cmd_list_steps() -> int:
 
 
 def cmd_compare_loaders(cfg, input_path: Path) -> int:
-    """pandas와 polars로 같은 파일을 읽어 결과가 일치하는지 확인한다.
-
-    같은 비교를 파이프라인의 compare_loaders 단계도 수행하며 결과를 report.md에
-    싣는다. 이 명령은 로딩 시간·타입 차이까지 터미널에서 자세히 보고 싶을 때
-    쓰는 보조 도구다.
-    """
+    """Pandas와 Polars의 parquet 로딩 결과를 비교한다."""
     import time
 
     import pandas as pd
     import polars as pl
 
-    # 먼저 재는 쪽만 디스크를 읽으면 불공정하므로 페이지 캐시를 데운다.
+    # OS 페이지 캐시 영향을 줄이기 위해 파일을 한 번 읽는다.
     with open(input_path, "rb") as f:
         while f.read(1 << 24):
             pass
@@ -129,7 +83,7 @@ def cmd_compare_loaders(cfg, input_path: Path) -> int:
     pl_size = ldf.estimated_size("mb")
     pl_types = {c: str(t) for c, t in zip(ldf.columns, ldf.dtypes)}
     pl_shape = ldf.shape
-    # pandas 측정 전에 해제한다. 동시에 들고 있으면 메모리가 서로 간섭한다.
+    # pandas 로딩 전에 Polars 객체를 해제한다.
     del ldf
 
     t = time.perf_counter()
@@ -155,12 +109,12 @@ def cmd_compare_loaders(cfg, input_path: Path) -> int:
     print(f"\n  [일치 검증] 컬럼별 결측수 {'OK' if same_null else '불일치'}"
           f" / 완전중복 {'OK' if pl_exact == pd_exact else '불일치'}")
 
-    # 부분키 중복은 두 라이브러리의 '세는 대상'이 다르다.
+    # 부분키 중복 집계 기준을 비교한다.
     print(f"\n  [주의] 부분키 중복 정의 차이")
     print(f"     polars is_duplicated().sum() = {pl_key:>9,}  (그룹 구성원 전부)")
     print(f"     pandas duplicated().sum()    = {pd_key:>9,}  (첫 행 제외)")
 
-    # 결측이 있는 정수 컬럼에서 pandas는 float64로 승격시킨다.
+    # 결측 정수 컬럼의 dtype 차이를 확인한다.
     print(f"\n  [타입 복원 차이] 결측이 있는 정수 컬럼")
     for col in pdf.columns:
         p, l = str(pdf[col].dtype), pl_types[col]
@@ -171,7 +125,7 @@ def cmd_compare_loaders(cfg, input_path: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """진입점. 반환값이 그대로 종료 코드가 되어 스케줄러가 성패를 판단한다."""
+    """CLI 진입점"""
     args = build_parser().parse_args(argv)
 
     try:
@@ -184,17 +138,14 @@ def main(argv: list[str] | None = None) -> int:
     input_path = Path(args.input).resolve() if args.input else cfg.paths.raw
     steps = [s.strip() for s in args.steps.split(",")] if args.steps else None
 
-    # 로그 파일은 실행 디렉터리에 함께 남긴다. run_id를 미리 계산해야 하는데
-    # 입력 해시는 파일을 읽어야 나오므로, 여기서는 설정 해시만으로 임시 경로를 잡고
-    # runner가 실제 run_id 디렉터리를 만든다.
+    # 콘솔 로그를 설정한다.
     setup_logging(args.log_level, args.log_format)
 
     if args.command == "list-steps":
         return cmd_list_steps()
 
     if args.command == "fetch":
-        # 파이프라인 없이 입력만 확보한다. 스케줄러에서 다운로드 태스크를
-        # 따로 두거나, 처음 저장소를 받은 사람이 준비만 할 때 쓴다.
+        # 원본 파일만 준비한다.
         try:
             path = ensure_input(cfg, force=args.force_download)
         except (FileNotFoundError, ValueError) as e:
@@ -209,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_ERROR
         return cmd_compare_loaders(cfg, input_path)
 
-    # ---- dry-run: 무엇을 할지만 보여준다 -------------------------------------
+    # 실행 계획만을 출력한다.
     if args.dry_run:
         print(f"설정      : {cfg.source_file}  (sha {cfg.digest})")
         exists = "있음" if input_path.is_file() else "없음"
@@ -228,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
               f", range {len(cfg.expectations.range)}개")
         return EXIT_OK
 
-    # ---- 실행 ----------------------------------------------------------------
+    # 파이프라인을 실행한다.
     try:
         result = run_pipeline(
             cfg,

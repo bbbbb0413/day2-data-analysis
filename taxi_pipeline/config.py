@@ -1,14 +1,4 @@
-"""설정 로딩 — 모든 임계값은 코드가 아니라 config/pipeline.toml 에 있다.
-
-자동화 관점에서 중요한 점 두 가지:
-  1) 설정을 dataclass로 굳혀 오타를 로딩 시점에 잡는다.
-     cfg.outliers.duration_max_sec 를 잘못 쓰면 즉시 AttributeError가 난다.
-     dict로 들고 다니면 오타가 KeyError로 파이프라인 한복판에서 터진다.
-  2) 설정 해시를 남긴다. 산출물이 어떤 기준으로 만들어졌는지 나중에 증명해야
-     하는데, 파일 경로만 기록하면 그 사이 파일이 바뀌었는지 알 수 없다.
-
-TOML을 쓰는 이유: Python 3.11부터 tomllib가 표준 라이브러리라 의존성이 늘지 않는다.
-"""
+"""TOML 설정 파일을 파이프라인 설정 객체로 변환합니다."""
 
 from __future__ import annotations
 
