@@ -15,7 +15,7 @@ NYC Yellow Taxi 정제·EDA 파이프라인 — CLI 진입점
   python run_pipeline.py --log-format json         스케줄러·로그 수집기용
   python run_pipeline.py --dry-run                 실행 계획만 출력
   python run_pipeline.py --force-download          원본을 새로 받아 실행
-  python run_pipeline.py compare-loaders           pandas vs polars 로딩 비교
+  python run_pipeline.py compare-loaders           로딩 비교 상세 출력(파이프라인에도 포함)
 
 ■ 입력 확보
   data/raw/에 파일이 없으면 config의 [source] url_template에서 자동으로 받는다.
@@ -63,6 +63,7 @@ EXIT_OK, EXIT_GATE_FAILED, EXIT_ERROR = 0, 1, 2
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """CLI 인자 정의. 스케줄러가 쓰는 옵션이므로 기본값을 보수적으로 둔다."""
     p = argparse.ArgumentParser(
         prog="run_pipeline",
         description="NYC Yellow Taxi 정제·EDA 파이프라인",
@@ -105,8 +106,9 @@ def cmd_list_steps() -> int:
 def cmd_compare_loaders(cfg, input_path: Path) -> int:
     """pandas와 polars로 같은 파일을 읽어 결과가 일치하는지 확인한다.
 
-    파이프라인 본체에는 넣지 않았다. 매 실행 두 번 읽는 것은 낭비이고,
-    이 비교는 '도구를 바꿔도 결론이 같은가'를 한 번 확인하는 성격이기 때문이다.
+    같은 비교를 파이프라인의 compare_loaders 단계도 수행하며 결과를 report.md에
+    싣는다. 이 명령은 로딩 시간·타입 차이까지 터미널에서 자세히 보고 싶을 때
+    쓰는 보조 도구다.
     """
     import time
 
@@ -169,6 +171,7 @@ def cmd_compare_loaders(cfg, input_path: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """진입점. 반환값이 그대로 종료 코드가 되어 스케줄러가 성패를 판단한다."""
     args = build_parser().parse_args(argv)
 
     try:

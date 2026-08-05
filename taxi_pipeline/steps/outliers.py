@@ -98,6 +98,11 @@ def filter_outliers(df: pd.DataFrame, cfg: Config) -> StepResult:
                 "운행량·요금 분석이 목적이면 duration_policy='flag'로 바꿔라.")
             log.warning("이상치 필터로 VendorID=%s 전량(%s건) 삭제됨",
                         w["vendor"], f"{w['rows']:,}")
+        notes.append(
+            f"[한계] 소요시간 규칙(현재 정책 '{o.duration_policy}')이 특정 사업자를 "
+            f"통째로 제거했다. 값이 이상한 게 아니라 기록 방식이 다른 것이므로, "
+            f"운행량·요금·존 분석이 목적이라면 duration_policy='flag'로 바꿔 "
+            f"행을 보존해야 한다.")
 
     log.info("이상치 처리: %s행 제거 (보존율 %.2f%%)",
              f"{len(df) - len(out):,}", metrics["retention_ratio"] * 100)

@@ -8,13 +8,20 @@ print를 단계에서 걷어낸 대가로 이 모듈이 생긴다. 얻는 것:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from .config import Config
+# 표기 규칙은 통계 단계에 한 곳만 두고 가져다 쓴다.
+# 각자 정의하면 한쪽만 고쳤을 때 리포트와 로그의 표기가 갈라진다.
+from .steps.statistics import fmt_p
 from .quality import GateResult
 from .storage import RunManifest
 
 _DOW = ["월", "화", "수", "목", "금", "토", "일"]
+# 단계가 이 접두사로 note를 내면 리포트 맨 뒤 '한계' 섹션에 모인다.
+# 규칙을 한 곳에 두어 단계 코드를 고치지 않고도 배치를 바꿀 수 있다.
+LIMIT_PREFIX = "[한계]"
 
 
 def _fmt_actual(v: Any) -> str:
@@ -31,6 +38,11 @@ def _fmt_actual(v: Any) -> str:
 
 
 def _table(headers: list[str], rows: list[list[Any]]) -> str:
+    """리스트를 마크다운 표로 만든다.
+
+    리포트 전체가 표 중심이라 이 함수 하나로 형식을 통일한다.
+    셀 값은 호출부에서 이미 문자열로 포맷해 넘긴다.
+    """
     out = ["| " + " | ".join(headers) + " |",
            "|" + "|".join("---" for _ in headers) + "|"]
     out += ["| " + " | ".join(str(c) for c in r) + " |" for r in rows]
@@ -39,17 +51,49 @@ def _table(headers: list[str], rows: list[list[Any]]) -> str:
 
 def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
                   notes: dict[str, list[str]], gates: list[GateResult],
-                  rows_before: int) -> str:
+                  rows_before: int,
+                  artifacts: dict[str, list[dict]] | None = None) -> str:
     """실행 한 건의 리포트를 마크다운으로 만든다."""
     L: list[str] = []
     add = L.append
 
     add(f"# {cfg.name} 실행 리포트")
     add("")
+
+    # ---- 개요 ----------------------------------------------------------------
+    # 발표가 없으므로 "이 리포트가 무엇인지" 말해 줄 사람이 없다.
+    # run_id 해시로 시작하면 처음 보는 사람은 아무것도 알 수 없다.
+    # 무엇을 분석했고 결론이 무엇인지가 먼저 와야 한다.
+    add("## 개요")
+    add("")
+    final_rows = manifest.steps[-1]["rows_out"] if manifest.steps else rows_before
+    summary = [
+        f"NYC Yellow Taxi **{cfg.month}** 운행 기록 **{rows_before:,}행**을 정제하고 "
+        f"EDA·통계 검정·분류 모델까지 수행한 자동 실행 결과다.",
+        f"결측·중복·이상치를 처리해 **{final_rows:,}행**"
+        f"({final_rows / rows_before:.1%})을 남겼다.",
+    ]
+    if (_st := metrics.get("statistics")) and (_t := _st.get("ttest")):
+        summary.append(
+            f"t-test 결과 {_t['name']}에서 Cohen's d = {_t['cohens_d']:+.3f}"
+            f"({_t['effect_size']})의 차이를 확인했다.")
+    if (_ml := metrics.get("model")) and not _ml.get("skipped"):
+        summary.append(
+            f"고액팁 예측 모델의 F1은 **{_ml['scores']['f1']:.4f}**"
+            f"(기준선 대비 정확도 {_ml['improvement_over_baseline']:+.4f})다.")
+    for line in summary:
+        add(f"- {line}")
+    add("")
+    add("모든 처리에는 근거가 있으며 기준은 `결측치_중복_처리기준.md`와 `docs/`에 있다. "
+        "이 리포트는 파이프라인이 자동 생성한다.")
+    add("")
+
+    add("## 실행 정보")
+    add("")
     add(_table(["항목", "값"], [
         ["run_id", f"`{manifest.run_id}`"],
         ["실행 시각", manifest.started_at],
-        ["입력", f"`{manifest.input_file}` (sha `{manifest.input_digest}`)"],
+        ["입력", f"`{Path(manifest.input_file).name}` (sha `{manifest.input_digest}`)"],
         ["설정", f"`{cfg.source_file.name}` (sha `{cfg.digest}`)"],
         ["상태", "**성공**" if manifest.status == "success" else "**실패**"],
         ["소요", f"{manifest.duration_sec}초" if manifest.duration_sec else "-"],
@@ -78,7 +122,9 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
     add("")
 
     # ---- 단계별 실행 요약 ----------------------------------------------------
-    add("## 단계별 처리")
+    add("## 데이터 준비")
+    add("")
+    add("### 단계별 처리")
     add("")
     add(_table(["단계", "설명", "행 변화", "증감", "소요"], [
         [s["name"], s["description"],
@@ -94,76 +140,196 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
     add("")
 
     # ---- 각 단계가 남긴 근거 문장 --------------------------------------------
-    add("## 처리 근거")
+    # [한계]로 시작하는 문장은 여기 싣지 않고 맨 뒤 '한계' 섹션에 모은다.
+    # 흩어져 있으면 "이 결과를 어디까지 믿어야 하나"를 종합할 수 없다.
+    limitations: list[str] = []
+    add("### 처리 근거")
     add("")
     for step_name, lines in notes.items():
-        if not lines:
+        body = [x for x in lines if not x.startswith(LIMIT_PREFIX)]
+        limitations += [(step_name, x) for x in lines if x.startswith(LIMIT_PREFIX)]
+        if not body:
             continue
-        add(f"### {step_name}")
+        add(f"**{step_name}**")
         add("")
-        for line in lines:
+        for line in body:
             add(f"- {line}")
         add("")
 
-    # ---- EDA 요약 ------------------------------------------------------------
-    if prof := metrics.get("profile"):
-        add("## 기본 EDA")
+    # ---- 로딩 비교 --------------------------------------------------
+    if (lc := metrics.get("compare_loaders")) and not lc.get("skipped"):
+        add("### Pandas · Polars 로딩 비교")
         add("")
-        if desc := prof.get("describe"):
-            add("### 수치형 기술통계")
+        add(_table(["항목", f"polars {lc['polars_version']}",
+                    f"pandas {lc['pandas_version']}"], [
+            ["DataFrame 크기", f"{lc['polars_size_mb']:,.0f} MB",
+             f"{lc['pandas_size_mb']:,.0f} MB"],
+            ["부분키 중복 계산", f"{lc['partial_key_polars']:,} (구성원 전부)",
+             f"{lc['partial_key_pandas']:,} (첫 행 제외)"],
+        ]))
+        add("")
+        add(f"shape·컬럼별 결측수·완전중복이 "
+            f"**{'모두 일치' if lc['all_match'] else '불일치'}**한다. "
+            f"이후 분석은 도구 선택과 무관한 데이터 자체의 성질이다.")
+        add("")
+        if promoted := lc.get("dtype_promoted"):
+            add("결측이 있는 정수 컬럼의 타입 복원이 다르다.")
             add("")
-            add(_table(["컬럼", "평균", "중앙값", "95%", "99%", "최대"], [
-                [col, f"{d['mean']:,.2f}", f"{d['50%']:,.2f}",
-                 f"{d['95%']:,.2f}", f"{d['99%']:,.2f}", f"{d['max']:,.2f}"]
-                for col, d in desc.items()
+            add(_table(["컬럼", "pandas", "polars", "결측"], [
+                [f"`{p['column']}`", p["pandas"], p["polars"], f"{p['nulls']:,}"]
+                for p in promoted
             ]))
             add("")
 
-        if src := prof.get("by_record_source"):
-            add("### record_source별 프로파일")
+    # ---- 시각화 --------------------------------------------------------------
+    # 그림만 넣으면 무슨 뜻인지 알 수 없다. 발표가 없어 리포트가 유일한 전달
+    # 수단이므로 캡션을 반드시 함께 싣는다(계획서 §1-3).
+    if artifacts and (figs := artifacts.get("visualize")):
+        add("## 시각화")
+        add("")
+        for i, f in enumerate(figs, 1):
+            add(f"### {i}. {f['name']}")
             add("")
-            add(_table(["소스", "행 수", "평균 거리", "평균 요금", "평균 팁", "평균 총액"], [
-                [k, f"{int(v['rows']):,}", f"{v['mean_distance']:.2f}",
-                 f"{v['mean_fare']:.2f}", f"{v['mean_tip']:.2f}", f"{v['mean_total']:.2f}"]
-                for k, v in src.items()
+            add(f"![{f['name']}]({f['path']})")
+            add("")
+            if f.get("caption"):
+                add(f"> {f['caption']}")
+                add("")
+            # Plotly 차트는 PNG 옆에 인터랙티브 HTML을 함께 만든다.
+            # 마크다운이 외부 HTML을 본문에 렌더링하지 못하므로 링크로 연결한다.
+            if f.get("kind") == "plotly":
+                html = f["path"].rsplit(".", 1)[0] + ".html"
+                add(f"**[인터랙티브 버전 열기]({html})** — 셀에 마우스를 올리면 값이 표시됩니다")
+                add("")
+
+    # ---- 통계분석 ------------------------------------------------------------
+    if st := metrics.get("statistics"):
+        add("## 통계분석")
+        add("")
+
+        # 기술통계 — 평균·표준편차·분위수. 중앙값(50%)이 평균과 나란히 놓여
+        # 오른쪽 꼬리가 긴 분포에서 평균이 대표값이 아님을 드러낸다.
+        if desc := st.get("describe"):
+            add("### 기술통계")
+            add("")
+            add(_table(["컬럼", "평균", "표준편차", "25%", "중앙값", "75%", "95%", "99%"], [
+                [c, f"{d['mean']:,.2f}", f"{d['std']:,.2f}", f"{d['25%']:,.2f}",
+                 f"{d['50%']:,.2f}", f"{d['75%']:,.2f}", f"{d['95%']:,.2f}",
+                 f"{d['99%']:,.2f}"]
+                for c, d in desc.items()
             ]))
             add("")
 
-        if hours := prof.get("by_hour"):
-            peak, quiet = prof.get("peak_hour"), prof.get("quietest_hour")
-            add(f"### 시간대 (최다 {peak}시 / 최소 {quiet}시)")
+        # 범주형 분포 — 코드성 컬럼은 평균이 아니라 빈도로 봐야 한다
+        if cat := st.get("categorical"):
+            base = st.get("categorical_base_rows", 0)
+            add(f"### 범주형 분포 (record_source='full' {base:,}행 한정)")
             add("")
-            mx = max(v["rows"] for v in hours.values())
-            for h in sorted(hours, key=int):
-                v = hours[h]
-                bar = "█" * int(v["rows"] / mx * 30)
-                add(f"- `{int(h):02d}시` {int(v['rows']):>8,}건 "
-                    f"평균요금 {v['mean_fare']:>6.2f}  {bar}")
-            add("")
-
-        if dows := prof.get("by_dayofweek"):
-            add("### 요일")
-            add("")
-            add(_table(["요일", "행 수", "평균 요금", "평균 팁"], [
-                [_DOW[int(k)], f"{int(v['rows']):,}",
-                 f"{v['mean_fare']:.2f}", f"{v['mean_tip']:.2f}"]
-                for k, v in sorted(dows.items(), key=lambda x: int(x[0]))
-            ]))
+            for col, counts in cat.items():
+                items = " · ".join(f"`{k}` {v:,}건({v / base:.1%})"
+                                   for k, v in counts.items())
+                add(f"- **{col}** — {items}")
             add("")
 
-        if buckets := prof.get("by_distance_bucket"):
-            add("### 거리 구간별 요금 (마일당은 중앙값)")
+        # 상관계수 — 두 계수를 나란히 둬야 격차가 보인다
+        if corr := st.get("correlation"):
+            pe, sp = corr["pearson"], corr["spearman"]
+            cols = list(pe)
+            add("### 상관계수 (피어슨 / 스피어만)")
             add("")
-            add(_table(["구간", "행 수", "평균 요금", "마일당 요금"], [
-                [k, f"{int(v['rows']):,}", f"{v['mean_fare']:.2f}",
-                 f"{v['median_per_mile']:.2f}"]
-                for k, v in buckets.items()
+            add(_table([""] + cols, [
+                [a] + [f"{pe[a][b]:+.3f} / {sp[a][b]:+.3f}" for b in cols]
+                for a in cols
             ]))
             add("")
+            g = corr.get("max_gap", {})
+            add(f"두 계수가 가장 크게 어긋나는 쌍: **{g.get('pair')}** "
+                f"(차이 {g.get('gap', 0):.3f})")
+            add("")
+
+        # t-test — 결과값과 해석 문장을 함께 싣는다.
+        # p-value만 보고하면 "유의하다"까지만 말할 수 있어 해석이 되지 않는다.
+        if t := st.get("ttest"):
+            add("### t-test (scipy.stats.ttest_ind)")
+            add("")
+            add(f"**{t['name']}** — {t['question']}")
+            add("")
+            add(f"대상: {t['population']}")
+            add("")
+            a, b = t["group_a"], t["group_b"]
+            add(_table(["집단", "n", "평균 팁 비율", "표준편차"], [
+                [a["label"], f"{a['n']:,}", f"{a['mean']:.2%}", f"{a['std']:.4f}"],
+                [b["label"], f"{b['n']:,}", f"{b['mean']:.2%}", f"{b['std']:.4f}"],
+            ]))
+            add("")
+            add(_table(["t 통계량", "p-value", "Cohen's d", "효과크기"], [
+                [f"{t['t_statistic']:.2f}", fmt_p(t["p_value"]),
+                 f"{t['cohens_d']:+.3f}", t["effect_size"]],
+            ]))
+            add("")
+            add(f"> {t['interpretation']}")
+            add("")
+
+    # ---- ML Pipeline ---------------------------------------------------------
+    if (ml := metrics.get("model")) and not ml.get("skipped"):
+        add("## ML Pipeline")
+        add("")
+        add(_table(["항목", "값"], [
+            ["문제", f"이진 분류 — 팁 비율 ≥ {ml['target_threshold']:.0%} 여부"],
+            ["모집단", f"카드결제 {ml['population_rows']:,}건"],
+            ["양성 비율", f"{ml['positive_ratio']:.2%}"],
+            ["학습 / 평가", f"{ml['train_rows']:,}행 / {ml['test_rows']:,}행"],
+            ["피처", f"수치 {len(ml['features_numeric'])}개 + "
+                    f"범주 {len(ml['features_categorical'])}개"],
+            ["누수 제외", ", ".join(f"`{c}`" for c in ml["excluded_leakage"])],
+            ["모델", f"`{ml['model']}` (scikit-learn {ml['sklearn_version']})"],
+        ]))
+        add("")
+
+        # 평가 지표. 기준선을 함께 둬야 이 성능이 좋은 것인지 판단할 수 있다.
+        s = ml["scores"]
+        add("### 평가 지표")
+        add("")
+        add(_table(["정확도", "정밀도", "재현율", "F1", "ROC-AUC"], [
+            [f"{s['accuracy']:.4f}", f"{s['precision']:.4f}", f"{s['recall']:.4f}",
+             f"{s['f1']:.4f}", f"{s['roc_auc']:.4f}"],
+        ]))
+        add("")
+        add(f"다수 클래스만 예측하는 기준선의 정확도가 **{ml['baseline_accuracy']:.4f}"
+            f"**이므로 **{ml['improvement_over_baseline']:+.4f}** 개선했다. "
+            f"기준선을 함께 보지 않으면 정확도 {s['accuracy']:.2f}가 좋은 값인지 "
+            f"판단할 수 없다.")
+        add("")
+
+        # 저장 위치와 불러 쓰는 법. 경로만 적으면 어떻게 쓰는지 알 수 없다.
+        if artifacts and (mods := artifacts.get("model")):
+            add("### 저장된 모델")
+            add("")
+            for f in mods:
+                add(f"`{f['path']}` — {f['caption']}")
+                add("")
+            add("```python")
+            add("import joblib")
+            add(f"model = joblib.load(\"{mods[0]['path']}\")")
+            add("model.predict(df[FEATURES])   # 전처리가 Pipeline 안에 들어 있다")
+            add("```")
+            add("")
+
+    # ---- 한계 ----------------------------------------------------------------
+    # 각 단계에 흩어져 있으면 아무도 종합하지 못한다. 한곳에 모아
+    # "이 결과를 어디까지 믿어야 하나"를 한눈에 판단할 수 있게 한다.
+    if limitations:
+        add("## 한계")
+        add("")
+        add("이 결과를 해석할 때 함께 고려해야 할 조건들이다.")
+        add("")
+        for step_name, line in limitations:
+            add(f"- **{step_name}** — {line[len(LIMIT_PREFIX):].strip()}")
+        add("")
 
     add("---")
     add("")
-    add(f"기준 문서: `결측치_중복_처리기준.md` · 설정: `{cfg.source_file.name}`")
+    add(f"기준 문서: `결측치_중복_처리기준.md`, `docs/` · 설정: `{cfg.source_file.name}`")
     return "\n".join(L)
 
 

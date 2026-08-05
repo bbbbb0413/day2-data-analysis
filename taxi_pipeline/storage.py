@@ -65,6 +65,7 @@ class RunManifest:
     outputs: dict[str, str] = field(default_factory=dict)
 
     def to_json(self) -> str:
+        """매니페스트를 JSON 문자열로 만든다."""
         return json.dumps(jsonable(asdict(self)), ensure_ascii=False, indent=2)
 
 
@@ -80,15 +81,18 @@ class RunStore:
     """
 
     def __init__(self, base: Path, run_id: str):
+        """실행 디렉터리를 만든다. 이미 있으면 그대로 쓴다."""
         self.dir = base / run_id
         self.dir.mkdir(parents=True, exist_ok=True)
         self.run_id = run_id
 
     @property
     def log_file(self) -> Path:
+        """실행 로그 경로. 산출물과 같은 디렉터리에 둬 함께 보관된다."""
         return self.dir / "pipeline.log"
 
     def write_json(self, name: str, payload: Any) -> Path:
+        """dict를 JSON으로 저장한다. numpy·dataclass는 jsonable이 변환한다."""
         target = self.dir / name
         target.write_text(json.dumps(jsonable(payload), ensure_ascii=False, indent=2),
                           encoding="utf-8")
@@ -96,6 +100,7 @@ class RunStore:
         return target
 
     def write_text(self, name: str, text: str) -> Path:
+        """텍스트를 그대로 저장한다(리포트 등)."""
         target = self.dir / name
         target.write_text(text, encoding="utf-8")
         return target

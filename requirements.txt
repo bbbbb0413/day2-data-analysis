@@ -19,3 +19,21 @@ pyarrow>=15.0
 # pandas와의 로딩 결과 비교(EDA) — 멀티스레드 CSV 파서, 지연 평가(scan_csv)
 # NaN과 결측(null)을 구분하므로 결측 원인 규명에도 사용
 polars>=1.0
+
+# --- 시각화 (채점 기준: Seaborn 정적 차트 + Plotly 인터랙티브 차트 각 1개 이상) ---
+# seaborn은 matplotlib 위에서 동작하므로 둘 다 필요하다.
+matplotlib>=3.8
+seaborn>=0.13
+plotly>=5.20
+# plotly 차트를 PNG로도 내보내기 위한 렌더링 엔진.
+#   HTML만 저장하면 report.md에는 링크만 남아 그림이 보이지 않는다.
+#   발표 없이 리포트가 유일한 전달 수단이므로, 인터랙티브 HTML(요건 증빙)과
+#   PNG 스냅샷(리포트 본문 표시)을 함께 만든다.
+kaleido>=1.0
+
+# --- 통계 분석 (채점 기준: scipy.stats.ttest_ind 로 t-test) ---
+scipy>=1.11
+
+# --- ML (채점 기준: sklearn.pipeline.Pipeline 으로 전처리+모델, joblib으로 저장) ---
+scikit-learn>=1.4
+joblib>=1.3

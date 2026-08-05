@@ -1,9 +1,11 @@
-# NYC Yellow Taxi 정제·EDA 파이프라인
+# NYC Yellow Taxi 정제·분석 파이프라인
 
-2026-05 Yellow Taxi 운행 기록(409만 행)을 정제하고 기본 EDA를 수행한다.
-**어떤 기준으로 결측치와 중복을 처리할지**는 실제 데이터에서 근거를 찾아 정했고,
-그 근거는 [`결측치_중복_처리기준.md`](결측치_중복_처리기준.md)에 있다.
-이 저장소의 코드는 그 문서의 기준을 실행 가능한 형태로 옮긴 것이다.
+2026-05 Yellow Taxi 운행 기록(409만 행)을 정제하고 EDA·시각화·통계 검정·
+분류 모델까지 자동으로 수행한다.
+
+**모든 데이터 처리에는 근거가 있다.** 관례로 정하지 않고 이 데이터에서
+실제로 관측된 값으로 결정했으며, 그 기록은
+[`결측치_중복_처리기준.md`](결측치_중복_처리기준.md)와 [`docs/`](docs/)에 있다.
 
 ---
 
@@ -15,65 +17,47 @@
 pip install -r requirements.txt
 
 python run_pipeline.py --dry-run      # 무엇을 할지 먼저 확인
-python run_pipeline.py                # 전체 실행 (원본 자동 다운로드 포함, 약 8초)
-python tests/test_steps.py            # 단위 테스트 22개 (원본 없이 0.5초)
+python run_pipeline.py                # 전체 실행 (원본 자동 다운로드 포함, 약 22초)
+python tests/test_steps.py            # 단위 테스트 32개 (원본 없이 0.5초)
 ```
 
 원본 데이터를 미리 받아둘 필요가 없다. `data/raw/`에 파일이 없으면
 NYC TLC 공개 엔드포인트에서 자동으로 내려받는다(66.5MB, 약 1초).
 이미 있으면 건드리지 않는다.
 
-```bash
-python run_pipeline.py fetch            # 원본만 받아두기
-python run_pipeline.py --force-download # 원본이 갱신됐을 때 새로 받기
-```
-
 정상 실행 시 터미널 마지막에 이렇게 나온다.
 
 ```
-품질 게이트: 10개 전부 통과
+품질 게이트: 14개 전부 통과
 최종 3,884,622행 (원본 대비 보존율 94.96%)
-리포트: outputs/runs/20260804T232745Z_001fa159e74d_9aa5a1609e2b/report.md
+리포트: outputs/runs/<run_id>/report.md
 ```
 
 ---
 
-## 입력 데이터
+## 파이프라인 8단계
 
-`config/pipeline.toml`의 `[source]`가 출처를 정한다.
-
-```toml
-[source]
-url_template = "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{month}.parquet"
-auto_download = true      # false면 없을 때 받지 않고 안내와 함께 실패
-timeout_sec = 120
+```
+1. compare_loaders   Pandas·Polars 로딩 결과 비교
+2. analyze_missing   결측 구조 진단 (삭제·대체가 왜 안 되는지 근거 수집)
+3. prepare_missing   위장 결측 변환 + record_source 플래그 (행 삭제 없음)
+4. deduplicate       중복 유형 판정 후 선택 제거
+5. filter_outliers   기간·소요시간·거리·금액 이상치 제거
+6. visualize         Seaborn 정적 7개 + Plotly 인터랙티브 3개 차트
+7. statistics        기술통계·상관계수·t-test와 p-value 해석
+8. model             Pipeline으로 전처리+모델 학습, 평가 지표, joblib 저장
 ```
 
-`{month}`는 `project.month`로 치환되므로, **다른 달을 처리할 때 `month` 하나만
-바꾸면 저장 경로와 다운로드 URL이 함께 따라간다.**
-
-다운로드는 세 가지를 지킨다.
-
-- **원자적 쓰기** — `.part`로 받아 검증에 통과해야 최종 이름으로 바꾼다.
-  중간에 끊긴 파일이 `data/raw/`에 남으면 다음 실행이 그걸 "파일 있음"으로
-  판단해 깨진 데이터로 돌아버린다.
-- **받은 뒤 검증** — 크기와 parquet 메타데이터(행 수)를 확인한다.
-  HTTP 200인데 본문이 에러 페이지인 경우를 여기서 잡는다.
-- **없을 때만** — 이미 있으면 다시 받지 않는다. 원본이 바뀌면 입력 해시가
-  달라져 매니페스트에 드러난다.
-
-네트워크가 막힌 환경이라면 `auto_download = false`로 두면 된다.
-조용히 멈추지 않고 받을 URL을 알려주며 종료 코드 2로 실패한다.
+`python run_pipeline.py list-steps`로 확인할 수 있다.
+1·2·6·7·8은 DataFrame을 바꾸지 않는 분석 단계이고, 3·4·5만 행을 변형한다.
 
 ---
 
 ## 산출물
 
-실행하면 두 곳에 결과가 생긴다.
-
 ### 1. 정제 데이터 — `data/processed/yellow_2026-05_clean.parquet`
 
-파이프라인의 최종 결과물. **76MB, 3,884,622행 × 21열** (원본 대비 94.96% 보존).
+**76MB, 3,884,622행 × 21열** (원본 대비 94.96% 보존).
 
 ```python
 import pandas as pd
@@ -99,7 +83,7 @@ df = pd.read_parquet("data/processed/yellow_2026-05_clean.parquet")
   `RatecodeID=99`, `PULocationID=264/265` 등)을 NaN으로 바꿨기 때문이다.
   원본을 그대로 집계하면 이 값들이 정상값으로 섞여 평균을 오염시킨다.
 - **중복키가 12건 남아 있다.** 상쇄쌍도 2배도 아닌 "서로 다른 운행"으로
-  판정한 그룹이라 의도적으로 유지했다(문서 §3.6 ③).
+  판정한 그룹이라 의도적으로 유지했다.
 
 **쓸 때 주의**
 
@@ -118,27 +102,44 @@ df.groupby(df.tpep_pickup_datetime.dt.hour)["total_amount"].mean()
 
 | 파일 | 용도 | 언제 보는가 |
 |---|---|---|
-| `report.md` | 사람이 읽는 근거 리포트 | **여기부터 본다** |
-| `metrics.json` | 지표 48개 (기계가 읽음) | 이전 실행과 비교할 때 |
-| `manifest.json` | 입력·설정 해시, 단계별 소요, 게이트 결과 | "이 결과가 뭘로 만들어졌나" 추적할 때 |
+| `report.md` | 사람이 읽는 리포트 (약 290줄) | **여기부터 본다** |
+| `figures/` | 차트 PNG 10개 + 인터랙티브 HTML 3개 | 리포트에서 자동 임베드 |
+| `model.joblib` | 학습된 Pipeline (약 390KB) | 예측에 재사용할 때 |
+| `metrics.json` | 전 단계 지표 | 이전 실행과 비교할 때 |
+| `manifest.json` | 입력·설정 해시, 단계별 소요, 게이트 결과 | "이 결과가 뭘로 만들어졌나" 추적 |
 
 ```bash
 # 최신 실행 리포트 열기
 open "$(ls -td outputs/runs/*/ | head -1)/report.md"
 ```
 
-**`report.md` 구성** — 품질 게이트 → 단계별 처리 → **처리 근거** → 기본 EDA
+**`report.md` 구성** — 읽는 사람의 질문 순서로 배치했다.
 
-근거 섹션이 핵심이다. 각 단계가 왜 그렇게 처리했는지를 실측 숫자와 함께 남긴다.
+| 섹션 | 답하는 질문 |
+|---|---|
+| 개요 | 무엇을 한 분석인가? |
+| 실행 정보 | 어떤 데이터·기준으로 돌렸나? |
+| 품질 게이트 | **이 결과를 믿어도 되나?** |
+| 데이터 준비 | 원본을 어떻게 다듬었나? 왜 그렇게 했나? |
+| 시각화 | 데이터가 실제로 어떻게 생겼나? |
+| 통계분석 | 눈으로 본 차이가 통계적으로도 성립하나? |
+| ML Pipeline | 그래서 예측할 수 있나? |
+| 한계 | 이 결과를 어디까지 믿으면 되나? |
+
+각 단계가 낸 근거 문장이 그대로 실린다.
 
 ```
-### deduplicate
-- 20개 컬럼 완전중복 0건 — drop_duplicates()는 아무 행도 지우지 않는다.
 - drop_duplicates(keep='first')를 썼다면 양수 총액 29,370건(정상 운행)이
   지워지고 음수 14,847건(취소 기록)이 남는다. 순서 기반 제거는 사용 금지.
-
-### filter_outliers
 - [경고] VendorID=7가 51,750건 전량 삭제됐다 (소요시간<=0 비율 100.0%)...
+```
+
+**저장된 모델 사용법**
+
+```python
+import joblib
+model = joblib.load("outputs/runs/<run_id>/model.joblib")
+model.predict(df[FEATURES])   # 전처리가 Pipeline 안에 들어 있다
 ```
 
 **`metrics.json` 활용** — 다음 달 실행과 비교해 데이터 사고를 잡는 용도다.
@@ -150,7 +151,7 @@ m["deduplicate"]["naive_keep_first"]
 # {'positive_rows_dropped': 29370, 'negative_rows_dropped': 30, 'negative_rows_left': 14847}
 m["filter_outliers"]["vendors_wiped_out"]
 # [{'vendor': 7, 'rows': 51750, 'nonpositive_duration_ratio': 1.0}]
-m["profile"]["describe"]["fare_amount"]["mean"]   # 21.45
+m["model"]["scores"]["f1"]        # 0.8217
 ```
 
 ### 3. 중간 산출물 — `data/interim/` (선택)
@@ -160,8 +161,7 @@ m["profile"]["describe"]["fare_amount"]["mean"]   # 21.45
 
 > **아직 없는 기능**: 저장한 중간 산출물을 **다시 읽어 이어서 실행하는
 > `--from <step>`은 구현돼 있지 않다.** 지금은 쓰기 전용 스냅샷이다.
-> 전체 실행이 8초라 재시작의 실익이 없어 미뤄뒀다. 단계가 늘어 실행이
-> 길어지면 그때 붙이면 된다.
+> 전체 실행이 22초라 재시작의 실익이 없어 미뤄뒀다.
 
 ---
 
@@ -180,13 +180,17 @@ day2-data-analysis/
 │   ├── report.py               지표 → 마크다운 리포트
 │   ├── runner.py               오케스트레이션 — 순서·시간·기록
 │   └── steps/
-│       ├── base.py             단계 계약 (StepResult)
+│       ├── base.py             단계 계약 (StepResult, Artifact)
 │       ├── __init__.py         ★ 단계 목록 = 파이프라인의 목차
-│       ├── missing.py          결측 (문서 §2)
-│       ├── duplicates.py       중복 (문서 §3)
-│       ├── outliers.py         이상치 (문서 §4)
-│       └── profile.py          기본 EDA
-├── tests/test_steps.py         단위 테스트 22개
+│       ├── loaders.py          Pandas·Polars 로딩 비교
+│       ├── missing.py          결측
+│       ├── duplicates.py       중복
+│       ├── outliers.py         이상치
+│       ├── visualize.py        차트 10개
+│       ├── statistics.py       기술통계·상관계수·t-test
+│       └── model.py            ML Pipeline
+├── docs/                       단계별 근거 문서 7개
+├── tests/test_steps.py         단위 테스트 32개
 ├── data/
 │   ├── raw/                    원본 (자동 다운로드, git 제외)
 │   ├── interim/                --checkpoint 시 중간 산출물
@@ -207,7 +211,11 @@ def 단계(df: DataFrame, cfg: Config) -> StepResult:
 
 파일 읽기·쓰기는 `storage.py`, 출력은 `report.py`가 맡는다. 이 분리 덕분에
 409만 행을 읽지 않고 3행짜리 DataFrame으로 로직을 테스트할 수 있다
-(테스트 22개가 0.5초에 끝난다).
+(테스트 32개가 0.5초에 끝난다).
+
+차트·모델처럼 파일이 되는 산출물은 `Artifact`로 **저장하는 방법만** 넘기고,
+경로는 runner가 정한다. 단계는 여전히 순수 함수로 남고 산출물은
+실행마다 `run_id` 디렉터리에 격리된다.
 
 **2. 임계값은 코드가 아니라 설정에 있다**
 
@@ -229,14 +237,21 @@ def 단계(df: DataFrame, cfg: Config) -> StepResult:
 
 - **exact (7개)** — 2026-05에서 재현돼야 하는 정확한 값. 리팩터링하다 결과가
   바뀌는 로직 회귀를 잡는다.
-- **range (3개)** — 보존율·결측률·음수 총액. 월이 달라도 통하는 규칙이라
-  데이터 자체의 이상(공급처 포맷 변경 등)을 잡는다.
+- **range (7개)** — 보존율·결측률·음수 총액·차트 수·효과크기·F1·학습 표본 수.
+  월이 달라도 통하는 규칙이라 데이터 자체의 이상을 잡는다.
+
+> F1 게이트에 **상한 0.95**를 둔 것이 중요하다. 하한만 두면 누수를 못 잡는다.
+> F1이 0.95를 넘으면 성능이 좋은 게 아니라 타깃 정보가 피처에 새어 들어갔다는
+> 신호다.
 
 ---
 
-## 처리 기준 요약
+## 주요 처리 기준
 
-자세한 근거는 [`결측치_중복_처리기준.md`](결측치_중복_처리기준.md)에 있다.
+자세한 근거는 [`결측치_중복_처리기준.md`](결측치_중복_처리기준.md)와
+[`docs/`](docs/)에 있다.
+
+### 결측·중복
 
 | 항목 | 통상적인 처리 | 이 데이터에서의 결론 |
 |---|---|---|
@@ -253,6 +268,31 @@ def 단계(df: DataFrame, cfg: Config) -> StepResult:
   - 상쇄쌍(취소·환불, 13,301쌍) → 양쪽 제거
   - 이중계상(총액 정확히 2배, 16,086건) → 큰 쪽만 제거
 
+### 통계 검정
+
+t-검정 결과에 **p-value만 쓰지 않는다.** n이 266만이면 아주 작은 차이도
+p < 0.001이 되어 "유의하다"가 변별력을 잃는다. 효과크기를 함께 낸다.
+
+```
+장거리(≥5mi)(477,000건, 평균 17.16%) vs 단거리(<5mi)(2,182,779건, 평균 25.85%)
+— 차이 -8.69%p, t = -450.96, p < 2.23e-308, Cohen's d = -0.703(중간).
+유의하며 효과크기도 중간 이상이라 실질적으로 의미 있는 차이다.
+```
+
+### ML 모델
+
+고액팁(팁 비율 25% 이상) 여부를 예측하는 이진 분류.
+
+| 항목 | 값 | 이유 |
+|---|---|---|
+| 모집단 | 카드결제 2,659,779건 | 현금·무료·분쟁 결제는 팁이 **100% 0**으로 기록된다. 섞으면 "결제수단 맞히기"가 된다 |
+| 타깃 임계값 | 25% | 양성 56.13%로 균형. 15%면 "전부 양성" 모델이 정확도 0.79로 실제 모델(0.77)을 이긴다 |
+| 누수 제외 | `tip_amount`, `total_amount`, `payment_type` | `total_amount`는 팁을 포함한 합계라 역산된다 |
+| 학습 표본 | 50만 층화 추출 | 전체 266만 대비 ROC-AUC +0.0005인데 시간은 5.7배 |
+
+정확도 0.7703 / F1 0.8217 / ROC-AUC 0.7890
+(다수 클래스만 예측하는 기준선 0.5614 대비 **+0.2089**)
+
 ---
 
 ## 자주 쓰는 명령
@@ -267,7 +307,7 @@ python run_pipeline.py --checkpoint          # 단계별 중간 산출물 저장
 python run_pipeline.py --no-save             # 검증만, parquet 저장 안 함
 python run_pipeline.py --log-format json     # 로그 수집기용
 python run_pipeline.py --input <다른.parquet> # 입력 직접 지정
-python run_pipeline.py compare-loaders       # pandas vs polars 로딩 비교
+python run_pipeline.py compare-loaders       # 로딩 비교 상세 출력
 ```
 
 `--steps`로 일부만 돌리면 뒤 단계의 지표가 없어 **게이트가 실패하고 종료 코드 1이
@@ -277,8 +317,8 @@ python run_pipeline.py compare-loaders       # pandas vs polars 로딩 비교
 
 ```bash
 cp config/pipeline.toml config/pipeline-2026-06.toml
-# month, paths.raw 수정 + check_exact = false (정확값은 2026-05 전용이므로)
-# url_template은 {month}가 자동 치환되므로 손댈 필요 없다
+# month 수정 + check_exact = false (정확값은 2026-05 전용이므로)
+# url_template과 paths.raw의 {month}는 자동 치환된다
 python run_pipeline.py --config config/pipeline-2026-06.toml
 ```
 
@@ -322,7 +362,35 @@ Airflow에서는 `BashOperator`로 같은 명령을 걸면 되고, 단계별로 
 `drop` 기준으로 기록된 값이라 그대로 두면 게이트가 실패한다.
 
 파이프라인은 이런 "사업자 전멸"을 자동 감지해 경고 로그와 리포트에 남긴다.
-나머지 판단 지점은 문서 §6에 정리돼 있다.
+
+### 그 밖의 한계
+
+실행할 때마다 리포트의 「한계」 섹션에 자동으로 실린다.
+
+- **partial 소스 95만 행**은 행은 남겼지만 승객수·요율·결제수단 컬럼 자체가 없다.
+  해당 컬럼을 쓰는 분석에서는 자동 제외되므로 **그 결과는 부분집합에 대한 것**이다.
+- **관측이 완전히 독립이 아니다.** 같은 기사·차량이 하루에 여러 번 운행하는데
+  식별자가 없어 보정할 수 없다. p-value가 실제보다 작게 나온다.
+- **모델은 무작위 분할**이라 "미래 예측" 성능은 과대평가될 수 있다.
+  하이퍼파라미터도 튜닝하지 않았다.
+
+---
+
+## 문서
+
+| 문서 | 내용 |
+|---|---|
+| [`결측치_중복_처리기준.md`](결측치_중복_처리기준.md) | 결측·중복·이상치 기준과 실측 근거 |
+| [`docs/00_과제_수행계획.md`](docs/00_과제_수행계획.md) | 전체 작업 계획 |
+| [`docs/01_분석설계_근거.md`](docs/01_분석설계_근거.md) | t-test 가설·ML 문제 정의 |
+| [`docs/02_시각화_근거.md`](docs/02_시각화_근거.md) | 차트 선택과 표현 결정 |
+| [`docs/03_통계분석_근거.md`](docs/03_통계분석_근거.md) | 검정 방법·전제·해석 규칙 |
+| [`docs/04_ML파이프라인_근거.md`](docs/04_ML파이프라인_근거.md) | 피처·전처리·모델·평가 결정 |
+| [`docs/05_리포트_근거.md`](docs/05_리포트_근거.md) | 리포트 구성 결정 |
+| [`docs/06_최종점검.md`](docs/06_최종점검.md) | 최종 점검 결과 |
+
+모든 결정은 `결정 / 근거 / 반례 / 한계` 형식으로 기록했다.
+**반례**는 "그렇게 하지 않았다면 무슨 일이 생기는가"를 실측으로 보인 것이다.
 
 ---
 
@@ -344,6 +412,6 @@ Airflow에서는 `BashOperator`로 같은 명령을 걸면 되고, 단계별로 
 | 파일 | 성격 |
 |---|---|
 | `taxi_data_overview.py` | 데이터 첫 탐색용. 기본정보를 7단계로 출력만 한다(읽기 전용) |
-| `taxi_eda_pipeline.py` | 같은 기준의 **단일 스크립트 버전**. 읽기 쉽지만 print 기반이라 자동화에 맞지 않아 `taxi_pipeline/` 패키지로 재구성했다. 결과(7개 기대값)는 양쪽 동일 |
+| `taxi_eda_pipeline.py` | 결측·중복 처리를 담은 **단일 스크립트 버전**. 읽기 쉽지만 print 기반이라 자동화에 맞지 않아 `taxi_pipeline/` 패키지로 재구성했다 |
 
 두 파일 모두 파이프라인 동작에는 관여하지 않는다. 정리해도 무방하다.

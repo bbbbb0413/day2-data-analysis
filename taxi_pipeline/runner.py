@@ -42,6 +42,8 @@ class RunResult:
     manifest: RunManifest
     metrics: dict[str, dict] = field(default_factory=dict)
     notes: dict[str, list[str]] = field(default_factory=dict)
+    # 단계별로 저장된 파일 산출물 (차트 등). 리포트가 이것을 보고 임베드한다.
+    artifacts: dict[str, list[dict]] = field(default_factory=dict)
     # 게이트 결과를 결과 객체에 담아 CLI가 재평가하지 않게 한다.
     # 두 번 평가하면 로그에 같은 내용이 두 번 찍히고, 그 사이 값이 달라질 여지도 생긴다.
     gates: list = field(default_factory=list)
@@ -50,6 +52,7 @@ class RunResult:
 
     @property
     def ok(self) -> bool:
+        """성공했고 게이트도 전부 통과했는가. CLI가 종료 코드를 정할 때 쓴다."""
         return self.manifest.status == "success" and not self.gate_failures
 
 
@@ -130,6 +133,27 @@ def run_pipeline(
 
             result.metrics[step.name] = out.metrics
             result.notes[step.name] = out.notes
+
+            # ---- 산출물 저장 (차트·모델 등) ----------------------------------
+            # 단계는 '저장하는 방법'만 넘기고 경로는 여기서 정한다.
+            # run_id 디렉터리 안에 두어야 실행마다 격리되고, report.md가 같은
+            # 디렉터리에 있으므로 상대경로 figures/x.png가 그대로 동작한다.
+            if out.artifacts:
+                saved = []
+                for art in out.artifacts:
+                    # 차트는 figures/ 하위에 모으고, 모델 같은 다른 산출물은
+                    # 실행 디렉터리 바로 아래에 둔다. 모델을 figures/에 넣으면
+                    # 이름과 내용이 어긋나 나중에 찾기 어렵다.
+                    rel = f"figures/{art.name}" if art.kind in ("figure", "plotly") \
+                        else art.name
+                    target = store.dir / rel
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    art.save(target)
+                    saved.append({"name": art.name, "kind": art.kind,
+                                  "caption": art.caption, "path": rel})
+                    log.info("  산출물 저장 %s", rel)
+                result.artifacts[step.name] = saved
+
             manifest.steps.append({
                 "name": step.name,
                 "description": step.description,
@@ -168,7 +192,7 @@ def run_pipeline(
 
         manifest.outputs["metrics"] = str(store.write_json("metrics.json", result.metrics))
         report = render_report(cfg, manifest, result.metrics, result.notes, gates,
-                               rows_before_all)
+                               rows_before_all, result.artifacts)
         manifest.outputs["report"] = str(store.write_text("report.md", report))
 
     except Exception:

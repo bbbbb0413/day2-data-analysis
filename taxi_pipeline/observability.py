@@ -27,6 +27,7 @@ class _JsonFormatter(logging.Formatter):
     """로그 수집기(Loki·CloudWatch 등)가 파싱할 수 있는 한 줄 JSON."""
 
     def format(self, record: logging.LogRecord) -> str:
+        """로그 레코드를 한 줄 JSON으로 바꾼다."""
         payload = {
             "ts": datetime.fromtimestamp(record.created, timezone.utc).isoformat(),
             "level": record.levelname,

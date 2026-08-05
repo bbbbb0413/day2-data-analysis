@@ -146,6 +146,13 @@ def prepare_missing(df: pd.DataFrame, cfg: Config) -> StepResult:
     notes.append(
         f"record_source 부여 — full {counts.get('full', 0):,} / "
         f"partial {counts.get('partial', 0):,}. 행 삭제 없음.")
+    # 행은 남겼지만 승객수·요율 컬럼 자체가 없는 소스라, 그 컬럼을 쓰는 분석에서는
+    # 결국 빠진다. "삭제하지 않았다"가 "모든 분석에 쓸 수 있다"는 뜻은 아니다.
+    if counts.get("partial"):
+        notes.append(
+            f"[한계] partial 소스 {counts['partial']:,}행은 행을 남겼지만 승객수·요율·"
+            f"결제수단 컬럼 자체가 없다. 이 컬럼을 쓰는 분석(범주형 분포, 팁 모델)에서는 "
+            f"자동으로 제외되므로, 그 결과는 전체가 아닌 부분집합에 대한 것이다.")
 
     log.info("결측 처리: sentinel %s건 변환, record_source 부여", f"{total_converted:,}")
     return StepResult(

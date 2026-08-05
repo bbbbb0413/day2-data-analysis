@@ -25,6 +25,12 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class GateResult:
+    """게이트 검사 하나의 결과.
+
+    kind가 "exact"면 expected는 정확값, "range"면 (하한, 상한) 튜플이다.
+    actual이 None일 수 있다 — --steps로 일부 단계만 돌리면 지표가 없다.
+    """
+
     name: str
     passed: bool
     expected: Any
@@ -32,6 +38,7 @@ class GateResult:
     kind: str            # "exact" | "range"
 
     def describe(self) -> str:
+        """로그와 리포트에 쓰는 한 줄 설명."""
         mark = "PASS" if self.passed else "FAIL"
         # 지표가 아예 없을 수 있다(--steps로 일부 단계만 돌린 경우).
         # None을 숫자 포맷에 넣으면 TypeError가 나므로 별도로 처리한다.
@@ -63,6 +70,17 @@ def collect_gate_values(metrics: dict[str, dict]) -> dict[str, Any]:
         out["duplicate_groups"] = dd.get("duplicate_groups")
         out["void_pairs"] = dd.get("void_pairs")
         out["double_rows"] = dd.get("double_rows")
+    if stt := m.get("statistics"):
+        # 검정 결과가 무너지면 데이터 이상 신호다. 정확한 값을 고정하면
+        # 다른 달 데이터에서 바로 실패하므로 범위로 검사한다.
+        out["cohens_d"] = stt.get("cohens_d")
+    if ml := m.get("model"):
+        # F1 상한을 두는 이유: 지나치게 높으면 성능이 아니라 누수 신호다.
+        out["f1"] = ml.get("f1")
+        out["train_rows"] = ml.get("train_rows")
+    if vz := m.get("visualize"):
+        # 차트 생성 실패를 조용히 넘기지 않는다
+        out["figure_count"] = vz.get("figure_count")
     if fo := m.get("filter_outliers"):
         out["final_rows"] = fo.get("rows_out")
         out["negative_total"] = fo.get("negative_total_after")
