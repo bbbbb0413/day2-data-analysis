@@ -3,4 +3,4 @@ data/
 *.csv
 *.parquet
 *.zip
-*.pkl
+*.pkl__pycache__/
