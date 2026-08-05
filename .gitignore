@@ -4,3 +4,10 @@ data/
 *.parquet
 *.zip
 *.pkl
+
+# 가상환경 무시
+venv/
+.venv/
+
+# macOS 관련 파일 무시
+.DS_Store

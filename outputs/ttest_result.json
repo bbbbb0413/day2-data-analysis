@@ -1,0 +1,17 @@
+{
+  "test": "Welch independent two-sample t-test",
+  "variable": "tip_rate_pct",
+  "group_1": "Weekday",
+  "group_2": "Weekend",
+  "weekday_count": 100000,
+  "weekend_count": 100000,
+  "weekday_mean_percent": 16.750119763954455,
+  "weekend_mean_percent": 17.009627308430783,
+  "mean_difference_percentage_point": -0.2595075444763282,
+  "t_statistic": -7.257839713184253,
+  "p_value": 3.947395900664838e-13,
+  "alpha": 0.05,
+  "is_significant": true,
+  "cohens_d": -0.03245804593695513,
+  "interpretation": "p-value가 유의수준 0.05보다 작으므로 평일과 주말의 평균 카드 팁 비율이 같다는 귀무가설을 기각합니다. 다만 통계적 유의성과 실제 차이의 크기는 구분하여 해석해야 합니다."
+}
