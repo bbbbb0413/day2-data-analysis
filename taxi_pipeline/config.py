@@ -65,6 +65,10 @@ class OutlierRules:
     duration_max_sec: int
     distance_min: float
     distance_max: float
+    # 🆕🆕🆕 [NEW 2026-08-05] speed_max_kmh — 거리·시간을 각각 자르는 것만으로는
+    # 못 잡는 "거리·시간 조합"형 오기록(GPS 오류)을 잡는 속력 상한. 실제 필터
+    # 로직은 steps/outliers.py 참고!
+    speed_max_kmh: float
     duration_policy: str          # "drop" | "flag"
 
     def __post_init__(self):

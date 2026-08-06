@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from .base import Artifact, Step, StepFn, StepResult
 from .duplicates import deduplicate
+from .features import engineer_features  # 🆕 [2026-08-06/유길선]
+from .feature_validation import validate_features  # 🆕 [2026-08-06/유길선]
 from .loaders import compare_loaders
 from .model import train_model
 from .missing import analyze_missing, prepare_missing
@@ -34,6 +36,18 @@ PIPELINE: list[Step] = [
          "중복 유형 판정 후 선택 제거 (상쇄쌍 양쪽 / 이중계상 큰 쪽)"),
     Step("filter_outliers", filter_outliers,
          "기간·소요시간·거리·금액 이상치 제거"),
+    # ################################################################################
+    # 🆕🆕🆕 [신규 2026-08-06 / 유길선 —통계분석에 파생변수를 포함시키려면 statistics 전에
+    # 어딘가 끼워 넣어야 해서 최소한으로 여기만 건드림. 위치를 바꾸고 싶으면 
+    # 상의 후 옮기면 됨 — filter_outliers 이후(정제 끝난 데이터 필요) ~ visualize/
+    # statistics 이전(새 컬럼을 봐야 함) 사이 어디든 상관없음. 🆕🆕🆕
+    # ################################################################################
+    Step("engineer_features", engineer_features,
+         "파생변수 추가: is_rush_hour · is_airport_trip (speed_kmh는 이상치 단계에서 이미 생성)"),
+    # 🆕 [2026-08-06/유길선] statistics_step()의 "검정은 하나만 한다" 원칙을 지키려고
+    # 새 파생변수 검증(t-test 2개)은 별도 단계로 분리했다. DataFrame은 안 바꾼다.
+    Step("validate_features", validate_features,
+         "파생변수 보조 검증: is_airport_trip·is_rush_hour 그룹 차이 t-test", mutates=False),
     # 시각화는 정제가 끝난 데이터를 그린다. DataFrame을 바꾸지 않으므로
     # profile과 순서를 바꿔도 결과가 같다.
     Step("visualize", visualize_step,

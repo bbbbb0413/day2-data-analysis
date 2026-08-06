@@ -181,10 +181,16 @@ def _chart_correlation(df: pd.DataFrame, cfg: Config):
                     square=True, ax=ax, cbar=False, annot_kws={"size": 9})
         ax.set_title(title, fontsize=12)
 
-    diff = (pearson - spearman).abs()
-    np.fill_diagonal(diff.values, 0)
-    i, j = np.unravel_index(np.argmax(diff.values), diff.shape)
-    gap = float(diff.iloc[i, j])
+    # 🆕🆕🆕 [수정 2026-08-06 / 유길선 — 원래 은서 담당 파일인데, 파이프라인이
+    # 이 지점에서 항상 죽어서 최소 범위로만 고침] 🆕🆕🆕
+    # (pearson - spearman).abs()의 .values가 pandas copy-on-write 때문에
+    # read-only 배열로 나와서 np.fill_diagonal()이 "underlying array is
+    # read-only"로 터졌다. 로직은 그대로 두고, .to_numpy(copy=True)로 명시적
+    # 복사본을 만들어 그 위에서만 diagonal을 0으로 채우도록 바꿨다.
+    diff = (pearson - spearman).abs().to_numpy(copy=True)
+    np.fill_diagonal(diff, 0)
+    i, j = np.unravel_index(np.argmax(diff), diff.shape)
+    gap = float(diff[i, j])
     fig.suptitle(f"상관계수 — {cols[i]} ~ {cols[j]} 에서 두 계수가 {gap:.3f} 벌어진다",
                  fontsize=13)
     fig.tight_layout()

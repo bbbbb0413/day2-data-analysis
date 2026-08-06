@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT))
 
 from taxi_pipeline.config import load_config                       # noqa: E402
 from taxi_pipeline.steps.duplicates import _classify, deduplicate  # noqa: E402
+from taxi_pipeline.steps.features import engineer_features         # noqa: E402  🆕 [2026-08-06/유길선]
 from taxi_pipeline.steps.missing import analyze_missing, prepare_missing  # noqa: E402
 from taxi_pipeline.steps.outliers import filter_outliers           # noqa: E402
 
@@ -250,6 +251,37 @@ def test_거리와_금액_이상치가_제거된다():
     res = filter_outliers(_frame(rows), CFG)
     assert len(res.df) == 1
     assert res.metrics["rows_dropped"] == 4
+
+
+# ---------------------------------------------------------------- 파생변수
+# 🆕🆕🆕 [신규 2026-08-06 / 유길선] engineer_features 단계 테스트 🆕🆕🆕
+def test_러시아워는_승차시각_기준으로_판정된다():
+    """아침 8시·저녁 17시는 True, 낮 13시는 False여야 한다."""
+    rows = [
+        _row("2026-05-01 08:00", "2026-05-01 08:10"),   # 아침 러시아워
+        _row("2026-05-01 17:00", "2026-05-01 17:10"),   # 저녁 러시아워
+        _row("2026-05-01 13:00", "2026-05-01 13:10"),   # 러시아워 아님
+    ]
+    res = engineer_features(_frame(rows), CFG)
+    assert res.df["is_rush_hour"].tolist() == [True, True, False]
+
+
+def test_공항트립은_요율_또는_요금으로_판정되고_partial행은_결측이다():
+    """RatecodeID 공항코드나 Airport_fee>0이면 True, partial 행(§2.7)은 NA여야 한다."""
+    rows = [
+        _row("2026-05-01 00:00", "2026-05-01 00:10", rate=2),      # JFK 요율
+        _row("2026-05-01 01:00", "2026-05-01 01:10", air=1.75),    # 공항 부가금
+        _row("2026-05-01 02:00", "2026-05-01 02:10"),              # 일반 트립
+    ]
+    partial = _row("2026-05-01 03:00", "2026-05-01 03:10")
+    for col in CFG.columns.missing_group:
+        partial[col] = None
+    rows.append(partial)
+
+    df = prepare_missing(_frame(rows), CFG).df
+    res = engineer_features(df, CFG)
+    assert res.df["is_airport_trip"].tolist()[:3] == [True, True, False]
+    assert pd.isna(res.df["is_airport_trip"].iloc[3])   # False가 아니라 결측이어야 함
 
 
 # ---------------------------------------------------------------- 통계분석
