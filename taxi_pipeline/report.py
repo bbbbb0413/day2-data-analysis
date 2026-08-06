@@ -1,10 +1,4 @@
-"""리포트 렌더링 — metrics dict를 사람이 읽는 마크다운으로 바꾼다.
-
-print를 단계에서 걷어낸 대가로 이 모듈이 생긴다. 얻는 것:
-  - 같은 지표로 마크다운·HTML·Slack 메시지를 각각 만들 수 있다
-  - 리포트 형식을 바꿔도 분석 로직을 건드리지 않는다
-  - 과거 실행의 metrics.json만 있으면 리포트를 다시 그릴 수 있다
-"""
+"""수집한 지표를 마크다운 리포트로 변환한다."""
 
 from __future__ import annotations
 
@@ -12,20 +6,18 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config
-# 표기 규칙은 통계 단계에 한 곳만 두고 가져다 쓴다.
-# 각자 정의하면 한쪽만 고쳤을 때 리포트와 로그의 표기가 갈라진다.
+# p-value 표기 형식을 통계 단계와 공유한다.
 from .steps.statistics import fmt_p
 from .quality import GateResult
 from .storage import RunManifest
 
 _DOW = ["월", "화", "수", "목", "금", "토", "일"]
-# 단계가 이 접두사로 note를 내면 리포트 맨 뒤 '한계' 섹션에 모인다.
-# 규칙을 한 곳에 두어 단계 코드를 고치지 않고도 배치를 바꿀 수 있다.
+# [한계]로 시작하는 문장은 리포트의 한계 섹션에 모은다.
 LIMIT_PREFIX = "[한계]"
 
 
 def _fmt_actual(v: Any) -> str:
-    """게이트 실측값 표시. 지표가 없을 수 있어(부분 실행) None을 견뎌야 한다."""
+    """품질 게이트의 실측값을 출력 형식에 맞게 변환한다."""
     if v is None:
         return "없음"
     if isinstance(v, bool):
@@ -38,11 +30,7 @@ def _fmt_actual(v: Any) -> str:
 
 
 def _table(headers: list[str], rows: list[list[Any]]) -> str:
-    """리스트를 마크다운 표로 만든다.
-
-    리포트 전체가 표 중심이라 이 함수 하나로 형식을 통일한다.
-    셀 값은 호출부에서 이미 문자열로 포맷해 넘긴다.
-    """
+    """행과 열 데이터를 마크다운 표로 변환한다."""
     out = ["| " + " | ".join(headers) + " |",
            "|" + "|".join("---" for _ in headers) + "|"]
     out += ["| " + " | ".join(str(c) for c in r) + " |" for r in rows]
@@ -53,17 +41,14 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
                   notes: dict[str, list[str]], gates: list[GateResult],
                   rows_before: int,
                   artifacts: dict[str, list[dict]] | None = None) -> str:
-    """실행 한 건의 리포트를 마크다운으로 만든다."""
+    """한 번의 실행 결과를 마크다운 리포트로 만든다."""
     L: list[str] = []
     add = L.append
 
     add(f"# {cfg.name} 실행 리포트")
     add("")
 
-    # ---- 개요 ----------------------------------------------------------------
-    # 발표가 없으므로 "이 리포트가 무엇인지" 말해 줄 사람이 없다.
-    # run_id 해시로 시작하면 처음 보는 사람은 아무것도 알 수 없다.
-    # 무엇을 분석했고 결론이 무엇인지가 먼저 와야 한다.
+    # 분석 대상과 핵심 결과를 먼저 정리한다.
     add("## 개요")
     add("")
     final_rows = manifest.steps[-1]["rows_out"] if manifest.steps else rows_before
@@ -100,9 +85,7 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
     ]))
     add("")
 
-    # ---- 품질 게이트를 맨 앞에 둔다 ------------------------------------------
-    # 자동 실행 결과에서 사람이 가장 먼저 봐야 할 것은 분석 내용이 아니라
-    # "이번 실행을 믿어도 되는가"이다.
+    # 품질 게이트 결과를 분석 내용보다 먼저 표시한다.
     add("## 품질 게이트")
     add("")
     if gates:
@@ -121,7 +104,7 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
         add("설정된 게이트 없음")
     add("")
 
-    # ---- 단계별 실행 요약 ----------------------------------------------------
+    # 단계별 처리 결과를 정리한다.
     add("## 데이터 준비")
     add("")
     add("### 단계별 처리")
@@ -139,9 +122,7 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
         f"(**{final / rows_before:.2%} 보존**)" if rows_before else "")
     add("")
 
-    # ---- 각 단계가 남긴 근거 문장 --------------------------------------------
-    # [한계]로 시작하는 문장은 여기 싣지 않고 맨 뒤 '한계' 섹션에 모은다.
-    # 흩어져 있으면 "이 결과를 어디까지 믿어야 하나"를 종합할 수 없다.
+    # 일반 근거와 한계 문장을 분리한다.
     limitations: list[str] = []
     add("### 처리 근거")
     add("")
@@ -156,7 +137,7 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
             add(f"- {line}")
         add("")
 
-    # ---- 로딩 비교 --------------------------------------------------
+    # 로딩 비교 결과를 표시한다.
     if (lc := metrics.get("compare_loaders")) and not lc.get("skipped"):
         add("### Pandas · Polars 로딩 비교")
         add("")
@@ -181,9 +162,7 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
             ]))
             add("")
 
-    # ---- 시각화 --------------------------------------------------------------
-    # 그림만 넣으면 무슨 뜻인지 알 수 없다. 발표가 없어 리포트가 유일한 전달
-    # 수단이므로 캡션을 반드시 함께 싣는다(계획서 §1-3).
+    # 차트와 함께 캡션을 표시한다.
     if artifacts and (figs := artifacts.get("visualize")):
         add("## 시각화")
         add("")
@@ -195,20 +174,18 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
             if f.get("caption"):
                 add(f"> {f['caption']}")
                 add("")
-            # Plotly 차트는 PNG 옆에 인터랙티브 HTML을 함께 만든다.
-            # 마크다운이 외부 HTML을 본문에 렌더링하지 못하므로 링크로 연결한다.
+            # 인터랙티브 차트의 HTML 링크를 함께 표시한다.
             if f.get("kind") == "plotly":
                 html = f["path"].rsplit(".", 1)[0] + ".html"
                 add(f"**[인터랙티브 버전 열기]({html})** — 셀에 마우스를 올리면 값이 표시됩니다")
                 add("")
 
-    # ---- 통계분석 ------------------------------------------------------------
+    # 통계분석 결과를 표시한다.
     if st := metrics.get("statistics"):
         add("## 통계분석")
         add("")
 
-        # 기술통계 — 평균·표준편차·분위수. 중앙값(50%)이 평균과 나란히 놓여
-        # 오른쪽 꼬리가 긴 분포에서 평균이 대표값이 아님을 드러낸다.
+        # 평균과 중앙값을 함께 표시한다.
         if desc := st.get("describe"):
             add("### 기술통계")
             add("")
@@ -220,7 +197,7 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
             ]))
             add("")
 
-        # 범주형 분포 — 코드성 컬럼은 평균이 아니라 빈도로 봐야 한다
+        # 코드형 컬럼은 빈도로 표시한다.
         if cat := st.get("categorical"):
             base = st.get("categorical_base_rows", 0)
             add(f"### 범주형 분포 (record_source='full' {base:,}행 한정)")
@@ -231,7 +208,7 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
                 add(f"- **{col}** — {items}")
             add("")
 
-        # 상관계수 — 두 계수를 나란히 둬야 격차가 보인다
+        # Pearson과 Spearman 값을 나란히 표시한다.
         if corr := st.get("correlation"):
             pe, sp = corr["pearson"], corr["spearman"]
             cols = list(pe)
@@ -247,8 +224,7 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
                 f"(차이 {g.get('gap', 0):.3f})")
             add("")
 
-        # t-test — 결과값과 해석 문장을 함께 싣는다.
-        # p-value만 보고하면 "유의하다"까지만 말할 수 있어 해석이 되지 않는다.
+        # 검정값과 해석 문장을 함께 표시한다.
         if t := st.get("ttest"):
             add("### t-test (scipy.stats.ttest_ind)")
             add("")
@@ -270,7 +246,7 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
             add(f"> {t['interpretation']}")
             add("")
 
-    # ---- ML Pipeline ---------------------------------------------------------
+    # 모델 학습 결과를 표시한다.
     if (ml := metrics.get("model")) and not ml.get("skipped"):
         add("## ML Pipeline")
         add("")
@@ -286,7 +262,7 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
         ]))
         add("")
 
-        # 평가 지표. 기준선을 함께 둬야 이 성능이 좋은 것인지 판단할 수 있다.
+        # 모델 지표와 기준선을 함께 표시한다.
         s = ml["scores"]
         add("### 평가 지표")
         add("")
@@ -301,7 +277,7 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
             f"판단할 수 없다.")
         add("")
 
-        # 저장 위치와 불러 쓰는 법. 경로만 적으면 어떻게 쓰는지 알 수 없다.
+        # 저장된 모델 경로와 사용 예시를 표시한다.
         if artifacts and (mods := artifacts.get("model")):
             add("### 저장된 모델")
             add("")
@@ -315,9 +291,7 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
             add("```")
             add("")
 
-    # ---- 한계 ----------------------------------------------------------------
-    # 각 단계에 흩어져 있으면 아무도 종합하지 못한다. 한곳에 모아
-    # "이 결과를 어디까지 믿어야 하나"를 한눈에 판단할 수 있게 한다.
+    # 단계별 한계 문장을 한곳에 모은다.
     if limitations:
         add("## 한계")
         add("")
@@ -335,7 +309,7 @@ def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
 
 def render_console_summary(result_metrics: dict[str, dict],
                            gates: list[GateResult]) -> str:
-    """터미널에 한 화면으로 띄우는 짧은 요약 (CLI 기본 출력)."""
+    """터미널에 표시할 실행 요약을 만든다."""
     lines = []
     n_fail = sum(1 for g in gates if not g.passed)
     lines.append("품질 게이트: "
@@ -344,8 +318,7 @@ def render_console_summary(result_metrics: dict[str, dict],
     for g in gates:
         if not g.passed:
             lines.append(f"  {g.describe()}")
-    # 보존율은 '원본 대비'로 말한다. filter_outliers의 retention_ratio는 그 단계의
-    # 입력 대비 값이라(중복 제거 후 기준) 여기 쓰면 실제보다 높게 보인다.
+    # 콘솔 보존율도 원본 행 수를 기준으로 계산한다.
     fo = result_metrics.get("filter_outliers")
     am = result_metrics.get("analyze_missing")
     if fo:

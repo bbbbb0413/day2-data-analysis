@@ -1,27 +1,4 @@
-"""원본 데이터 확보 — 없을 때만 내려받는다.
-
-자동화에서 "먼저 파일을 수동으로 넣어두세요"는 실패 지점이다. 스케줄러가
-새 서버에서 돌거나 컨테이너가 새로 뜨면 아무도 파일을 넣어주지 않는다.
-입력 확보까지 파이프라인이 책임지면 저장소만 있으면 어디서든 돌아간다.
-
-★ 설계에서 신경 쓴 것
-
-  1) 원자적 쓰기
-     .part 파일로 받고 검증에 통과해야 최종 이름으로 바꾼다.
-     중간에 끊긴 66MB 파일이 data/raw에 남으면, 다음 실행이 그것을
-     "파일이 있다"고 판단해 깨진 데이터로 파이프라인을 돌린다.
-     이 방식이면 실패한 다운로드는 최종 경로에 아예 도달하지 않는다.
-
-  2) 받은 뒤 검증
-     크기와 parquet 메타데이터를 확인한다. HTTP 200에 본문이 에러 페이지인
-     경우가 실제로 있고, 그러면 읽는 시점에야 정체불명의 예외로 터진다.
-
-  3) 기본은 '없을 때만'
-     이미 있으면 건드리지 않는다. 66MB를 매 실행 다시 받을 이유가 없고,
-     원본이 바뀌면 입력 해시가 달라져 매니페스트에 드러난다.
-
-의존성을 늘리지 않으려고 requests 대신 표준 라이브러리 urllib을 쓴다.
-"""
+"""원본 parquet 파일을 내려받고 상태를 확인한다."""
 
 from __future__ import annotations
 
@@ -36,26 +13,18 @@ from .config import Config
 
 log = logging.getLogger(__name__)
 
-# 진행 로그를 남기는 간격. 66MB를 8MB마다 찍으면 8줄 정도라 로그가 넘치지 않는다.
+# 다운로드 진행 로그를 8MB마다 남긴다.
 _PROGRESS_STEP = 8 * 1024 * 1024
-_CHUNK = 1 << 20                      # 1MB씩 읽어 메모리에 전체를 올리지 않는다
+_CHUNK = 1 << 20                      # 1MB 단위로 읽는다.
 
 
 def build_url(cfg: Config) -> str:
-    """설정의 템플릿과 월로 다운로드 URL을 만든다.
-
-    월을 바꾸면 URL이 따라 바뀌므로, 다른 달을 처리할 때 설정에서
-    month만 고치면 된다(경로와 URL을 따로 관리하지 않는다).
-    """
+    """설정한 월을 적용해 다운로드 URL을 만든다."""
     return cfg.source.url_template.format(month=cfg.month)
 
 
 def _verify(path: Path, expected_bytes: int | None) -> int:
-    """받은 파일이 실제로 쓸 수 있는 parquet인지 확인한다.
-
-    Returns: 행 수
-    Raises: ValueError — 크기 불일치, parquet이 아님, 필수 컬럼 없음
-    """
+    """다운로드한 parquet 파일의 크기와 행 수를 확인한다."""
     size = path.stat().st_size
     if size == 0:
         raise ValueError("받은 파일이 비어 있습니다")
@@ -69,7 +38,7 @@ def _verify(path: Path, expected_bytes: int | None) -> int:
 
         meta = pq.ParquetFile(path)
     except Exception as e:
-        # HTTP 200인데 본문이 에러 페이지인 경우가 여기서 걸린다
+        # HTTP 응답이 parquet이 아니면 여기서 확인된다.
         raise ValueError(f"parquet으로 읽을 수 없습니다: {e}") from e
 
     if meta.metadata.num_rows == 0:
@@ -78,7 +47,7 @@ def _verify(path: Path, expected_bytes: int | None) -> int:
 
 
 def download(url: str, target: Path, timeout: int = 120) -> Path:
-    """URL에서 받아 target에 저장한다. 검증에 통과할 때만 최종 경로에 놓는다."""
+    """파일을 임시 경로에 내려받고 검증 후 최종 경로로 옮긴다."""
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(target.name + ".part")
     log.info("다운로드 시작 %s", url)
@@ -103,7 +72,7 @@ def download(url: str, target: Path, timeout: int = 120) -> Path:
 
         rows = _verify(tmp, total or None)
         elapsed = time.perf_counter() - started
-        # replace는 원자적이다. 이 줄을 넘어야 비로소 '정상 파일'이 된다.
+        # 검증을 통과한 임시 파일만 최종 경로로 바꾼다.
         tmp.replace(target)
         log.info("다운로드 완료 %s (%.1f MB, %s행, %.1f초)",
                  target.name, target.stat().st_size / 1024**2, f"{rows:,}", elapsed)
@@ -114,19 +83,14 @@ def download(url: str, target: Path, timeout: int = 120) -> Path:
     except urllib.error.URLError as e:
         raise ValueError(f"네트워크 오류: {e.reason} ({url})") from e
     finally:
-        # 실패했으면 반쪽 파일을 남기지 않는다. 성공 시엔 이미 rename되어 없다.
+        # 실패하면 남아 있는 임시 파일을 삭제한다.
         if tmp.exists():
             tmp.unlink(missing_ok=True)
             log.warning("불완전한 임시 파일을 삭제했습니다: %s", tmp.name)
 
 
 def ensure_input(cfg: Config, *, force: bool = False) -> Path:
-    """입력 파일을 보장한다. 없으면 내려받고, 있으면 그대로 쓴다.
-
-    force=True면 이미 있어도 다시 받는다(원본이 갱신됐을 때).
-    auto_download=False면 없을 때 내려받지 않고 명확한 안내와 함께 실패한다
-    — 네트워크를 막아 둔 환경에서 조용히 멈춰 있는 것보다 낫다.
-    """
+    """입력 파일이 있으면 사용하고 없으면 설정에 따라 내려받는다."""
     target = cfg.paths.raw
 
     if target.is_file() and not force:
