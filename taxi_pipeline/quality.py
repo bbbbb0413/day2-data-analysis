@@ -1,16 +1,4 @@
-"""품질 게이트 — 자동화의 안전장치.
-
-스케줄러는 로그를 읽지 않는다. 사람이 매일 아침 출력을 확인해 줄 거라고
-가정하면 안 된다. 기대와 다르면 **프로세스가 0이 아닌 코드로 죽어야** 알림이 울린다.
-
-두 종류를 검사한다.
-  exact : 기준 데이터(2026-05)에서 재현되어야 하는 정확한 값.
-          로직 회귀(리팩터링하다 결과가 바뀌는 사고)를 잡는다.
-  range : 다른 월에도 통하는 일반 규칙(보존율·결측률 등).
-          데이터 자체의 이상(공급처 포맷 변경 등)을 잡는다.
-
-다른 월을 돌릴 때는 설정에서 check_exact=false 로 두고 range만 검사한다.
-"""
+"""단계별 지표가 설정한 품질 기준을 충족하는지 확인한다."""
 
 from __future__ import annotations
 
@@ -25,23 +13,18 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class GateResult:
-    """게이트 검사 하나의 결과.
-
-    kind가 "exact"면 expected는 정확값, "range"면 (하한, 상한) 튜플이다.
-    actual이 None일 수 있다 — --steps로 일부 단계만 돌리면 지표가 없다.
-    """
+    """품질 게이트 한 항목의 검사 결과를 저장한다."""
 
     name: str
     passed: bool
     expected: Any
     actual: Any
-    kind: str            # "exact" | "range"
+    kind: str            # "exact" 또는 "range"이다.
 
     def describe(self) -> str:
-        """로그와 리포트에 쓰는 한 줄 설명."""
+        """검사 결과를 한 줄 문자열로 반환한다."""
         mark = "PASS" if self.passed else "FAIL"
-        # 지표가 아예 없을 수 있다(--steps로 일부 단계만 돌린 경우).
-        # None을 숫자 포맷에 넣으면 TypeError가 나므로 별도로 처리한다.
+        # 일부 단계만 실행하면 실측값이 없을 수 있다.
         actual = "없음" if self.actual is None else (
             f"{self.actual:,}" if isinstance(self.actual, int)
             else (f"{self.actual:.6f}" if isinstance(self.actual, float)
@@ -53,11 +36,7 @@ class GateResult:
 
 
 def collect_gate_values(metrics: dict[str, dict]) -> dict[str, Any]:
-    """단계별 지표에서 게이트가 검사할 값만 뽑아 평평하게 만든다.
-
-    게이트 설정이 단계 이름을 몰라도 되게 하는 층이다. 단계를 리팩터링해
-    지표 위치가 바뀌어도 이 함수만 고치면 설정 파일은 그대로 쓸 수 있다.
-    """
+    """단계별 지표에서 품질 검사에 사용할 값을 모은다."""
     m = metrics
     out: dict[str, Any] = {}
 
@@ -71,28 +50,27 @@ def collect_gate_values(metrics: dict[str, dict]) -> dict[str, Any]:
         out["void_pairs"] = dd.get("void_pairs")
         out["double_rows"] = dd.get("double_rows")
     if stt := m.get("statistics"):
-        # 검정 결과가 무너지면 데이터 이상 신호다. 정확한 값을 고정하면
-        # 다른 달 데이터에서 바로 실패하므로 범위로 검사한다.
+        # 통계 지표는 다른 월에도 적용할 수 있도록 범위로 검사한다.
         out["cohens_d"] = stt.get("cohens_d")
     if ml := m.get("model"):
-        # F1 상한을 두는 이유: 지나치게 높으면 성능이 아니라 누수 신호다.
+        # F1이 지나치게 높으면 누수를 의심할 수 있다.
         out["f1"] = ml.get("f1")
         out["train_rows"] = ml.get("train_rows")
     if vz := m.get("visualize"):
-        # 차트 생성 실패를 조용히 넘기지 않는다
+        # 차트 생성 개수로 누락 여부를 확인한다.
         out["figure_count"] = vz.get("figure_count")
     if fo := m.get("filter_outliers"):
         out["final_rows"] = fo.get("rows_out")
         out["negative_total"] = fo.get("negative_total_after")
 
-    # 보존율은 원본 대비로 계산한다(단계별 보존율이 아니라 전체 파이프라인 기준)
+    # 보존율은 원본 행 수를 기준으로 계산한다.
     if out.get("total_rows") and out.get("final_rows") is not None:
         out["retention_ratio"] = out["final_rows"] / out["total_rows"]
     return out
 
 
 def evaluate(metrics: dict[str, dict], cfg: Config) -> list[GateResult]:
-    """설정의 기대값과 실측을 대조한다."""
+    """설정의 기대값과 실측값을 비교한다."""
     values = collect_gate_values(metrics)
     exp = cfg.expectations
     results: list[GateResult] = []
@@ -107,8 +85,7 @@ def evaluate(metrics: dict[str, dict], cfg: Config) -> list[GateResult]:
         log.info("check_exact=false — 정확값 검사를 건너뛴다(기준 데이터가 아닌 경우)")
 
     for name, bounds in exp.range.items():
-        # 설정 오타를 여기서 명확히 잡는다. TOML에서 하위 테이블 순서를 잘못 두면
-        # 스칼라 값이 range 안으로 딸려 들어와 AttributeError로 터진다.
+        # range 항목이 min과 max를 가진 dict인지 확인한다.
         if not isinstance(bounds, dict) or "min" not in bounds or "max" not in bounds:
             raise ValueError(
                 f"[expectations.range] {name} 은 {{min=..., max=...}} 형태여야 합니다"
@@ -126,5 +103,5 @@ def evaluate(metrics: dict[str, dict], cfg: Config) -> list[GateResult]:
 
 
 def failures(results: list[GateResult]) -> list[str]:
-    """실패한 게이트 설명만 뽑는다. 매니페스트와 종료 코드 결정에 쓴다."""
+    """실패한 품질 게이트의 설명을 반환한다."""
     return [r.describe() for r in results if not r.passed]

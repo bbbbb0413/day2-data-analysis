@@ -1,4 +1,4 @@
-"""기간, 소요시간, 거리, 금액 기준으로 이상치를 처리합니다."""
+"""기간, 소요시간, 거리와 금액 기준으로 이상치를 처리한다."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def filter_outliers(df: pd.DataFrame, cfg: Config) -> StepResult:
     per_rule: dict[str, int] = {}
     prev = len(df)
     for name, cond in rules:
-        keep &= cond                    # 규칙을 순서대로 누적 적용
+        keep &= cond                    # 규칙을 순서대로 누적 적용한다.
         now = int(keep.sum())
         per_rule[name] = prev - now
         prev = now

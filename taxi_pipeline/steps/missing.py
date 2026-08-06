@@ -80,8 +80,8 @@ def analyze_missing(df: pd.DataFrame, cfg: Config) -> StepResult:
         resid = (df.loc[all_na, "total_amount"]
                  - df.loc[all_na, parts].fillna(0).sum(axis=1)).round(2)
         top = resid.value_counts().head(5)
-        real_mean = float(df[flag].mean())            # 결측 제외한 실측 평균
-        zero_mean = float(df[flag].fillna(0).mean())  # 0으로 채운 평균
+        real_mean = float(df[flag].mean())            # 결측을 제외한 실측 평균이다.
+        zero_mean = float(df[flag].fillna(0).mean())  # 결측을 0으로 채운 평균이다.
         metrics["fillna_zero_check"] = {
             "column": flag,
             "residual_top": {float(k): int(v) for k, v in top.items()},

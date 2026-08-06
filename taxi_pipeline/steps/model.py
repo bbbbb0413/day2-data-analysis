@@ -39,7 +39,7 @@ def _prepare(df: pd.DataFrame, cfg: Config) -> tuple[pd.DataFrame, pd.Series, di
 
     # 팁 비율을 기준으로 타깃을 생성한다.
     rate = card["tip_amount"] / card["fare_amount"].replace(0, np.nan)
-    ok = rate.notna() & (rate < 2)          # 계산할 수 없는 값과 극단값을 제외
+    ok = rate.notna() & (rate < 2)          # 계산할 수 없는 값과 극단값을 제외한다.
     card, rate = card[ok], rate[ok]
 
     # 시간 관련 파생 피처를 생성한다.
@@ -83,7 +83,7 @@ def _build_pipeline(cfg: Config, num: list[str], cat: list[str]) -> Pipeline:
 
 
 def train_model(df: pd.DataFrame, cfg: Config) -> StepResult:
-    """모델을 학습·평가하고 joblib으로 저장한다. DataFrame은 바꾸지 않는다."""
+    """모델을 학습하고 평가한 뒤 joblib으로 저장한다."""
     import joblib
     import sklearn
 

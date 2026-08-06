@@ -125,7 +125,7 @@ def cmd_compare_loaders(cfg, input_path: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI 진입점"""
+    """CLI 실행을 시작한다."""
     args = build_parser().parse_args(argv)
 
     try:
@@ -160,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_ERROR
         return cmd_compare_loaders(cfg, input_path)
 
-    # 실행 계획만을 출력한다.
+    # 실행 계획만 출력한다.
     if args.dry_run:
         print(f"설정      : {cfg.source_file}  (sha {cfg.digest})")
         exists = "있음" if input_path.is_file() else "없음"

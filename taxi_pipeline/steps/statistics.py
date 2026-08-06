@@ -1,4 +1,4 @@
-"""기술통계, 상관계수, t-test를 계산한다."""
+"""기술통계, 상관계수와 t-test를 계산한다."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def fmt_p(p: float) -> str:
 
 
 def _effect_label(d: float) -> str:
-    """Cohen's d를 관례적 구간명으로 바꾼다."""
+    """Cohen's d를 구간명으로 변환한다."""
     for bound, label in _EFFECT_BANDS:
         if abs(d) < bound:
             return label
@@ -63,7 +63,7 @@ def _interpret(r: dict, alpha: float) -> str:
 
 
 def statistics_step(df: pd.DataFrame, cfg: Config) -> StepResult:
-    """기술통계·상관계수·t-test를 수행한다. DataFrame은 바꾸지 않는다."""
+    """기술통계, 상관계수와 t-test를 수행한다."""
     st = cfg.statistics
     notes: list[str] = []
 
@@ -112,7 +112,7 @@ def statistics_step(df: pd.DataFrame, cfg: Config) -> StepResult:
     # 카드결제 데이터로 장거리와 단거리의 팁 비율을 비교한다.
     card = df[df["payment_type"] == 1]
     rate = card["tip_amount"] / card["fare_amount"].replace(0, np.nan)
-    ok = rate.notna() & (rate < 2)      # 계산할 수 없는 값과 극단값을 제외
+    ok = rate.notna() & (rate < 2)      # 계산할 수 없는 값과 극단값을 제외한다.
     rate, dist = rate[ok], card.loc[ok, "trip_distance"]
 
     thr = st.long_trip_threshold

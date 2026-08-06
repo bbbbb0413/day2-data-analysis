@@ -1,4 +1,4 @@
-"""콘솔, JSON 로그와 JSON 직렬화를 처리합니다."""
+"""콘솔 로그와 JSON 직렬화를 처리한다."""
 
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ import pandas as pd
 
 
 class _JsonFormatter(logging.Formatter):
-    """로그 수집기(Loki·CloudWatch 등)가 파싱할 수 있는 한 줄 JSON."""
+    """로그 레코드를 한 줄 JSON으로 출력하는 포매터이다."""
 
     def format(self, record: logging.LogRecord) -> str:
-        """로그 레코드를 한 줄 JSON으로 바꾼다."""
+        """로그 레코드를 한 줄 JSON으로 변환한다."""
         payload = {
             "ts": datetime.fromtimestamp(record.created, timezone.utc).isoformat(),
             "level": record.levelname,
@@ -34,22 +34,17 @@ class _JsonFormatter(logging.Formatter):
 
 def setup_logging(level: str = "INFO", fmt: str = "text",
                   log_file: Path | None = None) -> None:
-    """루트 로거를 구성한다.
-
-    fmt="text" : 사람이 터미널에서 볼 때
-    fmt="json" : 스케줄러·로그 수집기에 넘길 때
-    log_file   : 지정하면 콘솔과 파일에 동시에 남긴다(실행 기록 보존용).
-    """
+    """로그 형식과 출력 위치를 설정한다."""
     root = logging.getLogger()
     root.setLevel(level.upper())
-    root.handlers.clear()                      # 재실행 시 핸들러 중복 방지
+    root.handlers.clear()                      # 재설정할 때 기존 핸들러를 제거한다.
 
     formatter: logging.Formatter = (
         _JsonFormatter() if fmt == "json"
         else logging.Formatter("%(asctime)s %(levelname)-7s %(name)-28s %(message)s",
                                datefmt="%H:%M:%S")
     )
-    console = logging.StreamHandler(sys.stderr)   # stdout은 리포트 전용으로 비워 둔다
+    console = logging.StreamHandler(sys.stderr)   # 일반 출력과 로그를 분리한다.
     console.setFormatter(formatter)
     root.addHandler(console)
 
@@ -61,14 +56,8 @@ def setup_logging(level: str = "INFO", fmt: str = "text",
 
 
 def jsonable(obj: Any) -> Any:
-    """numpy/pandas 타입을 JSON이 쓸 수 있는 형태로 바꾼다.
-
-    이 변환이 없으면 metrics.json 덤프가 'Object of type int64 is not JSON
-    serializable'로 죽는다. 파이프라인 마지막 단계에서 터지는 가장 흔한 사고다.
-    """
-    # dataclass를 먼저 처리한다. 빠뜨리면 마지막 str(obj) 분기로 떨어져
-    # manifest.json 전체가 "RunManifest(run_id=...)" 라는 문자열 한 줄로 저장된다.
-    # (파일은 정상적으로 생기고 예외도 안 나서 한참 뒤에야 발견된다)
+    """NumPy와 Pandas 값을 JSON으로 저장할 수 있는 형태로 변환한다."""
+    # dataclass는 dict로 변환한 뒤 다시 처리한다.
     if is_dataclass(obj) and not isinstance(obj, type):
         return jsonable(asdict(obj))
     if isinstance(obj, dict):
@@ -79,7 +68,7 @@ def jsonable(obj: Any) -> Any:
         return int(obj)
     if isinstance(obj, (np.floating,)):
         f = float(obj)
-        return None if np.isnan(f) else f          # NaN은 JSON에 없다
+        return None if np.isnan(f) else f          # JSON에서는 NaN을 null로 저장한다.
     if isinstance(obj, (np.bool_,)):
         return bool(obj)
     if isinstance(obj, (pd.Timestamp, datetime)):
