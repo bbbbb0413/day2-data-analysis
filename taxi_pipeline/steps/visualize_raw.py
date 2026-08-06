@@ -154,7 +154,7 @@ def _chart_payment_tip_raw(df: pd.DataFrame, cfg: Config):
     fig, ax = plt.subplots(figsize=(9, 5))
     order = list(_PAYMENT.values())
     data = [sample.loc[sample["결제방식"] == p, "tip_amount"].clip(upper=20) for p in order]
-    ax.boxplot(data, labels=order, showfliers=False)
+    ax.boxplot(data, tick_labels=order, showfliers=False)
     ax.set_title("결제 방식별 팁 금액 분포 (원본, 5만행 샘플)", fontsize=12)
     ax.set_ylabel("팁 (USD)")
     fig.tight_layout()
