@@ -1,32 +1,4 @@
-"""[단계 6] 시각화 — 문서 02_시각화_근거.md
-
-정제된 데이터가 담고 있는 내용을 분포·상관관계·그룹 비교 세 축으로 그린다.
-report.md가 유일한 전달 수단이므로, 글로 설명하기 어려운 지점을 그림이 대신한다.
-
-  [Seaborn 정적]
-    1. 수치형 분포 4종        분포        — 각 변수는 어떻게 퍼져 있는가?
-    2. 상관계수 히트맵        상관관계    — 변수끼리 어떻게 얽혀 있는가?
-    3. 시간대별 패턴          그룹 비교   — 하루 중 언제 움직이는가?
-    4. 요일별 패턴            그룹 비교   — 요일에 따라 무엇이 달라지는가?
-    5. 거리-요금 관계         상관관계    — 거리가 늘면 요금은 어떻게 오르는가?
-    6. 결제수단별 팁          그룹 비교   — 결제수단이 팁 기록을 좌우하는가?
-    7. 소스별 프로파일        그룹 비교   — 두 제출 소스는 무엇이 다른가?
-
-  [Plotly 인터랙티브]
-    8. 시간대 × 요일 히트맵   그룹 비교   — 수요는 언제 몰리는가?
-    9. 일자별 운행량 추이     분포(시계열)— 한 달 동안 어떻게 변했는가?
-   10. 승차 존 TOP 20        그룹 비교   — 어느 지역에서 많이 타는가?
-
-★ 모두 '현재 데이터를 그대로 집계한' 그림이다.
-  추정·예측·모델 결과는 넣지 않는다. 관측된 사실만 그린다.
-
-★ 집계 기반 차트만 쓴다.
-  히스토그램·막대·히트맵은 데이터를 구간으로 묶으므로 388만 행에서도
-  렌더링 비용이 일정하다. 산점도·KDE는 점을 개별 렌더링해 멈춘다.
-
-★ 이 단계는 파일을 직접 쓰지 않는다.
-  Artifact로 '저장하는 방법'만 넘기고 경로는 runner가 정한다.
-"""
+"""정제 데이터로 정적 차트와 인터랙티브 차트를 생성한다."""
 
 from __future__ import annotations
 
@@ -34,8 +6,7 @@ import logging
 from pathlib import Path
 
 import matplotlib
-# Agg: 화면 없는 환경(스케줄러·컨테이너)에서도 파일로 저장할 수 있게 한다.
-# pyplot을 import하기 전에 지정해야 적용된다.
+# 화면이 없는 환경에서도 저장할 수 있도록 Agg 백엔드를 사용한다.
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt          # noqa: E402
@@ -49,16 +20,12 @@ from .base import Artifact, StepResult    # noqa: E402
 log = logging.getLogger(__name__)
 
 _DOW = ["월", "화", "수", "목", "금", "토", "일"]
-# 결제수단 코드 → 이름. sentinel 변환으로 0은 NaN이 되어 '미기재'로 잡힌다.
+# 결제수단 코드를 화면에 표시할 이름으로 변환한다.
 _PAYMENT = {1: "카드", 2: "현금", 3: "무료", 4: "분쟁"}
 
 
 def _setup_style(cfg: Config) -> str:
-    """한글 폰트와 공통 스타일을 지정한다.
-
-    폰트를 지정하지 않으면 한글 제목·축 레이블이 두부(□□□)로 깨진다.
-    설치된 폰트를 조회해 후보 중 처음 발견되는 것을 쓴다(OS마다 다르므로).
-    """
+    """한글 폰트와 공통 차트 설정을 적용한다."""
     from matplotlib import font_manager as fm
 
     available = {f.name for f in fm.fontManager.ttflist}
@@ -68,20 +35,16 @@ def _setup_style(cfg: Config) -> str:
         chosen = "DejaVu Sans"
 
     plt.rcParams["font.family"] = chosen
-    # matplotlib 기본값은 음수에 유니코드 마이너스(U+2212)를 쓰는데
-    # 한글 폰트에 그 글자가 없어 깨진다. ASCII 하이픈으로 되돌린다.
+    # 한글 폰트에서 음수 기호가 깨지지 않도록 설정한다.
     plt.rcParams["axes.unicode_minus"] = False
     sns.set_theme(style="whitegrid", font=chosen, rc={"axes.unicode_minus": False})
     return chosen
 
 
 def _mpl(fig, name: str, caption: str, dpi: int) -> Artifact:
-    """matplotlib Figure를 Artifact로 감싼다.
-
-    저장 시점에 close()까지 해서 Figure가 전역 목록에 쌓이지 않게 한다.
-    """
+    """Matplotlib Figure를 PNG 산출물로 변환한다."""
     def save(path: Path) -> None:
-        """runner가 정한 경로에 PNG를 쓴다."""
+        """Figure를 PNG로 저장한다."""
         fig.savefig(path, dpi=dpi, bbox_inches="tight")
         plt.close(fig)
 
@@ -89,13 +52,9 @@ def _mpl(fig, name: str, caption: str, dpi: int) -> Artifact:
 
 
 def _plotly(fig, name: str, caption: str) -> Artifact:
-    """Plotly Figure를 Artifact로 감싼다.
-
-    HTML(실제 탐색용)과 PNG(리포트 본문 표시)를 함께 만든다.
-    마크다운은 외부 HTML을 본문에 렌더링하지 못하므로 PNG가 필요하다.
-    """
+    """Plotly Figure를 HTML과 PNG 산출물로 변환한다."""
     def save(path: Path) -> None:
-        """HTML(인터랙티브)과 PNG(리포트 본문)를 함께 쓴다."""
+        """Plotly 차트를 HTML과 PNG로 저장한다."""
         fig.write_html(str(path.with_suffix(".html")), include_plotlyjs="cdn")
         fig.write_image(str(path), scale=2)
 
@@ -103,25 +62,17 @@ def _plotly(fig, name: str, caption: str) -> Artifact:
 
 
 def _tip_rate(df: pd.DataFrame) -> pd.Series:
-    """카드결제 건의 팁 비율.
-
-    현금·무료·분쟁 결제는 팁이 100% 0으로 기록되므로(시스템이 기록하지 않음)
-    섞으면 0에 뭉친 가짜 봉우리가 생긴다. 팁 비율은 카드결제만 대상으로 한다.
-    """
+    """카드결제 건의 팁 비율을 계산한다."""
     card = df[df["payment_type"] == 1]
     r = card["tip_amount"] / card["fare_amount"].replace(0, np.nan)
-    return r[r.notna() & (r < 2)]        # 요금 0(계산 불가)과 극단값 제외
+    return r[r.notna() & (r < 2)]        # 계산할 수 없는 값과 극단값을 제외한다.
 
 
 # ============================================================================
 # 1. 수치형 분포 4종 (Seaborn · 분포)
 # ============================================================================
 def _chart_distributions(df: pd.DataFrame, cfg: Config):
-    """주요 수치형 변수가 어떻게 퍼져 있는지 한 화면에 모은다.
-
-    네 변수 모두 오른쪽 꼬리가 길어 평균이 중앙값을 크게 웃돈다.
-    각 패널에 평균선·중앙값선을 함께 그어 그 간격을 눈으로 보이게 한다.
-    """
+    """주요 수치형 변수의 분포와 평균, 중앙값을 비교한다."""
     dur = (df[cfg.columns.dropoff] - df[cfg.columns.pickup]).dt.total_seconds() / 60
     panels = [
         ("trip_distance", df["trip_distance"], "이동거리 (mile)", 20),
@@ -163,11 +114,7 @@ def _chart_distributions(df: pd.DataFrame, cfg: Config):
 # 2. 상관계수 히트맵 (Seaborn · 상관관계)
 # ============================================================================
 def _chart_correlation(df: pd.DataFrame, cfg: Config):
-    """변수끼리 어떻게 얽혀 있는지 본다.
-
-    피어슨(선형)과 스피어만(순위)을 나란히 둔다. 두 값이 크게 어긋나는 쌍이
-    있다면 그 자체가 데이터 구조에 대한 정보다.
-    """
+    """Pearson과 Spearman 상관계수를 비교한다."""
     cols = [c for c in cfg.statistics.correlation_columns if c in df.columns]
     pearson = df[cols].corr(method="pearson")
     spearman = df[cols].corr(method="spearman")
@@ -175,8 +122,7 @@ def _chart_correlation(df: pd.DataFrame, cfg: Config):
     fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
     for ax, mat, title in ((axes[0], pearson, "피어슨 (선형 관계)"),
                            (axes[1], spearman, "스피어만 (순위 관계)")):
-        # vmin/vmax를 고정해 두 히트맵의 색이 같은 의미를 갖게 한다.
-        # 범위가 다르면 나란히 두어도 비교할 수 없다.
+        # 두 히트맵의 색상 범위를 동일하게 맞춘다.
         sns.heatmap(mat, annot=True, fmt=".3f", cmap="coolwarm", vmin=-1, vmax=1,
                     square=True, ax=ax, cbar=False, annot_kws={"size": 9})
         ax.set_title(title, fontsize=12)
@@ -207,10 +153,7 @@ def _chart_correlation(df: pd.DataFrame, cfg: Config):
 # 3. 시간대별 패턴 (Seaborn · 그룹 비교)
 # ============================================================================
 def _chart_hourly(df: pd.DataFrame, cfg: Config):
-    """하루 중 운행량과 요금이 어떻게 움직이는지 본다.
-
-    운행량과 평균요금은 단위가 달라 한 축에 그릴 수 없다. 위아래 두 단으로 나눈다.
-    """
+    """시간대별 운행량과 평균 요금, 거리를 비교한다."""
     pu = cfg.columns.pickup
     g = df.groupby(df[pu].dt.hour).agg(
         trips=("total_amount", "size"), fare=("fare_amount", "mean"),
@@ -248,7 +191,7 @@ def _chart_hourly(df: pd.DataFrame, cfg: Config):
 # 4. 요일별 패턴 (Seaborn · 그룹 비교)
 # ============================================================================
 def _chart_weekday(df: pd.DataFrame, cfg: Config):
-    """요일에 따라 운행량과 팁이 어떻게 달라지는지 본다."""
+    """요일별 운행량과 평균 요금, 팁을 비교한다."""
     pu = cfg.columns.pickup
     g = df.groupby(df[pu].dt.dayofweek).agg(
         trips=("total_amount", "size"), fare=("fare_amount", "mean"),
@@ -288,12 +231,7 @@ def _chart_weekday(df: pd.DataFrame, cfg: Config):
 # 5. 거리-요금 관계 (Seaborn · 상관관계)
 # ============================================================================
 def _chart_distance_fare(df: pd.DataFrame, cfg: Config):
-    """거리가 늘 때 요금이 어떻게 오르는지 구간별로 본다.
-
-    산점도로 388만 점을 찍으면 멈추므로 구간 집계로 대신한다.
-    마일당 요금은 중앙값을 쓴다. 0.01마일에 8달러 같은 행이 섞이면
-    비율의 평균이 800/mile로 튀어 구간 대표값이 되지 못한다.
-    """
+    """이동거리 구간별 평균 요금과 마일당 요금을 비교한다."""
     bins = [0, 1, 2, 3, 5, 10, 20, 100]
     b = df.assign(bucket=pd.cut(df["trip_distance"], bins),
                   per_mile=df["fare_amount"] / df["trip_distance"])
@@ -308,7 +246,7 @@ def _chart_distance_fare(df: pd.DataFrame, cfg: Config):
     ax1.set_ylabel("평균 요금 (USD)", color="#4C72B0")
     ax1.tick_params(axis="y", labelcolor="#4C72B0")
 
-    # 마일당 요금은 단위가 달라 보조축에 그린다
+    # 마일당 요금은 보조축에 표시한다.
     ax2 = ax1.twinx()
     ax2.plot(labels, g["per_mile"], marker="o", color="#C44E52", linewidth=2,
              label="마일당 요금 중앙값 (USD/mile)")
@@ -335,12 +273,7 @@ def _chart_distance_fare(df: pd.DataFrame, cfg: Config):
 # 6. 결제수단별 팁 (Seaborn · 그룹 비교)
 # ============================================================================
 def _chart_payment_tip(df: pd.DataFrame, cfg: Config):
-    """결제수단이 팁 기록을 좌우한다는 사실을 보여준다.
-
-    이 데이터에서 가장 중요한 구조적 사실이다. 현금 결제는 팁이 예외 없이
-    0으로 기록되는데, 승객이 안 준 게 아니라 현금 팁이 미터기에 입력되지 않는다.
-    이걸 모르고 전체 평균을 내면 팁 분석이 통째로 틀어진다.
-    """
+    """결제수단별 운행량과 팁 0 비율을 비교한다."""
     d = df.copy()
     d["결제수단"] = d["payment_type"].map(_PAYMENT).fillna("미기재")
     g = d.groupby("결제수단").agg(
@@ -380,11 +313,7 @@ def _chart_payment_tip(df: pd.DataFrame, cfg: Config):
 # 7. 소스별 프로파일 (Seaborn · 그룹 비교)
 # ============================================================================
 def _chart_source_profile(df: pd.DataFrame, cfg: Config):
-    """두 제출 소스(full/partial)가 무엇이 다른지 본다.
-
-    결측행을 지우지 않고 record_source로 구분한 판단이 옳았는지 확인하는 그림이다.
-    두 소스의 프로파일이 크게 다르면 한쪽을 지우는 순간 표본이 편향된다.
-    """
+    """record_source별 운행량과 평균값을 비교한다."""
     if "record_source" not in df.columns or df["record_source"].nunique() < 2:
         return None, {}
 
@@ -430,33 +359,25 @@ def _chart_source_profile(df: pd.DataFrame, cfg: Config):
 # 8. 시간대 × 요일 히트맵 (Plotly · 인터랙티브)
 # ============================================================================
 def _chart_demand_heatmap(df: pd.DataFrame, cfg: Config):
-    """수요가 언제 몰리는지 두 축으로 동시에 본다.
-
-    ★ 인터랙티브가 필요한 이유
-      168개 셀(24시간 × 7요일)의 값을 정적 이미지에 다 적으면 읽을 수 없다.
-      Plotly는 마우스를 올린 셀만 값을 보여주므로, 전체 패턴은 색으로 보고
-      개별 값은 필요할 때 확인한다. 정보 밀도 문제를 푸는 수단이다.
-    """
+    """요일과 시간대별 운행량을 히트맵으로 만든다."""
     import plotly.graph_objects as go
 
     pu = cfg.columns.pickup
-    # 집계 후 그린다. 원자료 388만 행을 넘기면 브라우저가 멈춘다.
+    # 원본 행을 그대로 넘기지 않고 집계한 결과를 사용한다.
     pivot = (df.groupby([df[pu].dt.dayofweek, df[pu].dt.hour])
              .size().unstack(fill_value=0).sort_index())
 
     fig = go.Figure(go.Heatmap(
         z=pivot.values, x=[f"{h}시" for h in pivot.columns],
         y=[_DOW[i] for i in pivot.index],
-        # 순차형 색상: 운행량은 방향성 없는 양적 변수라 발산형(빨강-파랑)을 쓰면
-        # 중간값에 특별한 의미가 있다는 잘못된 인상을 준다
+        # 운행량 크기를 표현하기 위해 순차형 색상을 사용한다.
         colorscale="YlOrRd", colorbar=dict(title="운행 건수"),
         hovertemplate="%{y}요일 %{x}<br>운행 %{z:,}건<extra></extra>",
     ))
     fig.update_layout(
         title="시간대 × 요일 운행량 — 셀에 마우스를 올리면 정확한 건수가 표시됩니다",
         xaxis_title="승차 시간대", yaxis_title="요일",
-        # Plotly 히트맵은 첫 행을 맨 아래에 그린다. 그대로 두면 월요일이 바닥에 와
-        # 일→월 역순으로 읽히므로 뒤집는다.
+        # 월요일부터 읽을 수 있도록 y축 순서를 뒤집는다.
         yaxis=dict(autorange="reversed"),
         width=1000, height=460, font=dict(size=12),
     )
@@ -476,19 +397,14 @@ def _chart_demand_heatmap(df: pd.DataFrame, cfg: Config):
 # 9. 일자별 운행량 추이 (Plotly · 인터랙티브)
 # ============================================================================
 def _chart_daily_trend(df: pd.DataFrame, cfg: Config):
-    """한 달 동안 운행량이 어떻게 변했는지 본다.
-
-    ★ 인터랙티브가 필요한 이유
-      31개 점의 정확한 값을 알려면 확대·마우스오버가 필요하다.
-      정적 이미지에 31개 숫자를 다 적으면 선이 가려진다.
-    """
+    """일자별 운행량을 인터랙티브 차트로 만든다."""
     import plotly.graph_objects as go
 
     pu = cfg.columns.pickup
     g = df.groupby(df[pu].dt.date).agg(
         trips=("total_amount", "size"), fare=("fare_amount", "mean"))
     dates = pd.to_datetime(g.index)
-    # 주말을 구분해 표시하면 주기적 패턴이 눈에 들어온다
+    # 주말 막대는 다른 색으로 표시한다.
     colors = ["#C44E52" if d.dayofweek >= 5 else "#4C72B0" for d in dates]
 
     fig = go.Figure()
@@ -516,12 +432,7 @@ def _chart_daily_trend(df: pd.DataFrame, cfg: Config):
 # 10. 승차 존 TOP 20 (Plotly · 인터랙티브)
 # ============================================================================
 def _chart_top_zones(df: pd.DataFrame, cfg: Config):
-    """어느 지역에서 많이 타는지 본다.
-
-    ★ 인터랙티브가 필요한 이유
-      존 ID는 숫자라 그 자체로 의미를 읽기 어렵다. 마우스오버로 건수·비율·
-      평균 요금을 함께 보여주면 막대 하나하나를 해석할 수 있다.
-    """
+    """승차 건수가 많은 지역 20개를 차트로 만든다."""
     import plotly.graph_objects as go
 
     top = df["PULocationID"].value_counts().head(20)
@@ -557,7 +468,7 @@ def _chart_top_zones(df: pd.DataFrame, cfg: Config):
 
 
 # ============================================================================
-# 단계 진입점
+# 시각화 단계를 구성한다.
 # ============================================================================
 _BUILDERS = [
     ("numeric_distributions", _chart_distributions),
@@ -574,14 +485,14 @@ _BUILDERS = [
 
 
 def visualize_step(df: pd.DataFrame, cfg: Config) -> StepResult:
-    """차트를 만들어 Artifact로 반환한다. DataFrame은 바꾸지 않는다."""
+    """차트를 생성하고 Artifact 목록으로 반환한다."""
     font = _setup_style(cfg)
     log.info("시각화 시작 (폰트 %s, %s행)", font, f"{len(df):,}")
 
     artifacts, metrics, notes = [], {"font": font}, []
     for key, build in _BUILDERS:
         art, m = build(df, cfg)
-        if art is None:                  # 해당 컬럼이 없어 못 그린 경우
+        if art is None:                  # 필요한 컬럼이 없으면 해당 차트를 건너뛴다.
             log.warning("%s 생략 (데이터 없음)", key)
             continue
         artifacts.append(art)
