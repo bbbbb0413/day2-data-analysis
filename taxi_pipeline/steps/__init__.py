@@ -12,6 +12,7 @@ from .missing import analyze_missing, prepare_missing
 from .outliers import filter_outliers
 from .statistics import statistics_step
 from .visualize import visualize_step
+from .visualize_raw import visualize_raw_step  # 🆕 [2026-08-06/유길선]
 
 PIPELINE: list[Step] = [
     # 가장 앞에 두는 이유: 이후 모든 분석이 "도구와 무관한 데이터의 성질"임을
@@ -20,6 +21,12 @@ PIPELINE: list[Step] = [
          "Pandas·Polars 로딩 결과 비교", mutates=False),
     Step("analyze_missing", analyze_missing,
          "결측 구조 진단 (삭제·대체가 왜 안 되는지 근거 수집)", mutates=False),
+    # 🆕 [2026-08-06/유길선] 원본(raw) 시각화 — 정제 전 데이터로 EDA를 수행해
+    # 이후 단계(missing/duplicates/outliers/features)의 처리 기준을 설계하는
+    # 근거를 남긴다. compare_loaders·analyze_missing과 마찬가지로 raw df가
+    # 필요하므로 정제 단계(prepare_missing 이하) 이전에 둔다.
+    Step("visualize_raw", visualize_raw_step,
+         "원본 데이터 시각화 — 결측·이상치·상관관계 함정 등 정제 기준의 근거 수집", mutates=False),
     Step("prepare_missing", prepare_missing,
          "위장 결측 변환 + record_source 플래그 (행 삭제 없음)"),
     Step("deduplicate", deduplicate,
