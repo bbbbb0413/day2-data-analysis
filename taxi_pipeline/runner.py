@@ -14,7 +14,7 @@ import pandas as pd
 from .config import Config
 from .fetch import ensure_input
 from .quality import evaluate, failures
-from .report import render_report
+from .report import render_report, render_report_revised  # 🆕 [2026-08-06/유길선]
 from .steps import PIPELINE, STEPS, Step
 from .storage import (RunManifest, RunStore, file_digest, make_run_id,
                       peek_metadata, read_parquet, write_parquet)
@@ -166,6 +166,12 @@ def run_pipeline(
         report = render_report(cfg, manifest, result.metrics, result.notes, gates,
                                rows_before_all, result.artifacts)
         manifest.outputs["report"] = str(store.write_text("report.md", report))
+
+        # 🆕 [2026-08-06/유길선] report.md는 그대로 두고, 재구성한 순서의
+        # report_revised.md를 별도로 함께 생성한다(팀 논의 후 대체 여부 결정).
+        report_v2 = render_report_revised(cfg, manifest, result.metrics, result.notes,
+                                          gates, rows_before_all, result.artifacts)
+        manifest.outputs["report_revised"] = str(store.write_text("report_revised.md", report_v2))
 
     except Exception:
         manifest.status = "failed"
