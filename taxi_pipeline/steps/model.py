@@ -21,10 +21,20 @@ from .base import Artifact, StepResult
 
 log = logging.getLogger(__name__)
 
+# 피처 목록 (STEP 1 §B-4에서 확정)
+# 모두 '운행이 끝난 시점에 확정되는 관측값'이다.
+# 🆕🆕🆕 [2026-08-06 / 유길선] speed_kmh·is_rush_hour·is_airport_trip 추가 🆕🆕🆕
+# 원래 이 파일은 내 담당이 아니지만, "전처리·파생변수 전/후로 모델 성능이
+# 바뀌는가"를 비교하려면 파생변수가 실제로 피처에 들어가 있어야 해서 최소
+# 범위로 건드림. X = card[[... if c in card.columns]] 라 이 컬럼들이 없는
+# 데이터(예: raw 비교용 실행)로 돌려도 에러 없이 자동으로 빠진다.
+# LEAKAGE 세트는 절대 건드리지 않았다(테스트로 고정돼 있음).
 # 모델 입력에 사용할 피처를 정의한다.
 NUMERIC = ["trip_distance", "fare_amount", "duration_min", "passenger_count",
-           "hour", "dayofweek", "extra", "tolls_amount", "congestion_surcharge"]
-CATEGORICAL = ["VendorID", "RatecodeID", "PULocationID", "DOLocationID"]
+           "hour", "dayofweek", "extra", "tolls_amount", "congestion_surcharge",
+           "speed_kmh"]
+CATEGORICAL = ["VendorID", "RatecodeID", "PULocationID", "DOLocationID",
+               "is_rush_hour", "is_airport_trip"]
 
 # 타깃 누수를 방지하기 위해 제외할 컬럼을 정의한다.
 LEAKAGE = ["tip_amount", "total_amount", "payment_type"]
