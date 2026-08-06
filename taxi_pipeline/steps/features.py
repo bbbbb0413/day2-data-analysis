@@ -1,16 +1,4 @@
-"""[신규 단계] 파생변수 추가 — 유길선 담당 (2026-08-06)
-
-기존 필터(결측·중복·이상치)를 다 끝낸 정제 데이터에 파생변수 2종을 더한다.
-  - is_rush_hour   : 승차시각이 출퇴근 시간대인가
-  - is_airport_trip: 공항 트립인가 (RatecodeID 공항 요율 또는 Airport_fee 부과)
-
-세 번째 파생변수 speed_kmh는 이미 filter_outliers 단계(§4)에서 만들어져
-df에 남아 있으므로 여기서는 건드리지 않는다.
-
-행을 지우거나 값을 바꾸지 않고 컬럼만 추가하므로 다른 단계 순서와 무관하게
-끼워 넣을 수 있다. 다만 record_source(§2.7)가 있어야 is_airport_trip의
-결측 처리가 정확해지므로, prepare_missing 이후에 실행되어야 한다.
-"""
+"""파생변수 추가 단계"""
 
 from __future__ import annotations
 

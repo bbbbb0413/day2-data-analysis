@@ -64,7 +64,7 @@ amount_parts = [
     "fare_amount", "extra", "mta_tax", "tip_amount", "tolls_amount",
     "improvement_surcharge", "Airport_fee", "cbd_congestion_fee",
 ]
-# 🆕 [2026-08-06/유길선] is_rush_hour·is_airport_trip 추가 (steps/features.py 신규 단계)
+
 categorical = ["VendorID", "payment_type", "RatecodeID", "passenger_count",
                "is_rush_hour", "is_airport_trip"]
 
@@ -113,7 +113,6 @@ distance_min = 0.01
 distance_max = 100.0
 
 # ################################################################################
-# 🆕🆕🆕 [NEW 2026-08-05] 속력 상한 — 거리·시간을 각각 자르는 것만으로는
 # "거리 99mile + 시간 2초" 같은 물리적으로 불가능한 조합을 못 걸러낸다.
 # 뉴욕은 정체가 심해 하한은 두지 않는다(정체 구간 저속 운행까지 지워질 위험이
 # 있어서, GPS 오류를 잡는 상한만 둔다). 실제 필터: taxi_pipeline/steps/outliers.py
@@ -145,7 +144,7 @@ exact_duplicates = 0
 duplicate_groups = 29401
 void_pairs       = 13301
 double_rows      = 16086
-final_rows       = 3884062  # 🆕 2026-08-05 속력(speed) 규칙 추가로 -560행 (기존 3884622)
+final_rows       = 3884062
 
 # 범위로만 검사하는 값 — 다른 월 데이터에도 적용 가능한 일반 규칙
 [expectations.range]
@@ -184,7 +183,7 @@ equal_var = false
 
 # 기술통계 대상. 분위수에 중앙값(50%)이 포함되어 평균과 나란히 놓인다.
 # 평균이 중앙값의 1.8배인 분포라 표준편차만으로는 비대칭을 알 수 없다.
-# 🆕 [2026-08-06/유길선] speed_kmh 추가 — filter_outliers 단계(§4)에서 이미 만들어진
+# speed_kmh 추가 — filter_outliers 단계(§4)에서 이미 만들어진
 # 파생변수라 describe/correlation 대상에 넣기만 하면 됨(계산 로직은 안 건드림)
 describe_columns = ["trip_distance", "fare_amount", "tip_amount", "total_amount", "speed_kmh"]
 percentiles = [0.25, 0.50, 0.75, 0.95, 0.99]

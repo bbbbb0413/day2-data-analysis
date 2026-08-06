@@ -1,19 +1,4 @@
-"""[신규 단계] 파생변수 검증 — 유길선 담당 (2026-08-06)
-
-engineer_features가 만든 is_rush_hour·is_airport_trip이 라벨만 그럴듯한
-게 아니라 실제로 의미 있는 구분인지 두 가지 t-test로 확인한다.
-
-statistics.py의 statistics_step()은 "검정은 하나만 한다"는 설계 원칙이
-주석에 명시돼 있다(가설을 여러 개 세워 유의한 것만 고르면 선택편향이 된다).
-그 원칙은 그 단계의 "공식 가설검정 하나"에 대한 것이라, 여기서 하는 건
-그 원칙을 깨는 게 아니라 성격이 다른 별도 목적(새 파생변수 자체의 타당성
-검증)이라 statistics.py를 건드리지 않고 이 단계로 분리했다.
-
-① is_airport_trip: True/False 그룹 간 팁 비율 차이
-② is_rush_hour   : True/False 그룹 간 speed_kmh 차이
-   — "출퇴근시간대엔 실제로 느려지는가?"가 참이면, is_rush_hour가 라벨만이
-     아니라 실제 정체 상황을 반영하는 변수라는 뜻이다.
-"""
+"""파생변수 검증 단계"""
 
 from __future__ import annotations
 
