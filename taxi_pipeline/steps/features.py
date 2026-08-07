@@ -22,6 +22,8 @@ def engineer_features(df: pd.DataFrame, cfg: Config) -> StepResult:
     """is_rush_hour · is_airport_trip 파생변수를 추가한다."""
     pu = cfg.columns.pickup
     notes: list[str] = []
+    # 입력 인자를 제자리에서 바꾸지 않는다(prepare_missing과 같은 계약).
+    df = df.copy()
 
     # ---- is_rush_hour ------------------------------------------------------
     # 승차시각(pu)은 전 컬럼 중 결측 0건(§2.1)이라 record_source와 무관하게

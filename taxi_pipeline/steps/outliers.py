@@ -28,8 +28,10 @@ def filter_outliers(df: pd.DataFrame, cfg: Config) -> StepResult:
     duration_ok = dur.between(o.duration_min_sec, o.duration_max_sec)
 
     # 속력(km/h) = 거리(mile→km 환산) / 소요시간(초→시간 환산) 으로 계산한다.
-    df["speed_kmh"] = np.where(dur > 0,
-                               df["trip_distance"] * MILES_TO_KM / (dur / 3600), np.nan)
+    # 입력 df를 건드리지 않기 위해 별도 Series로 두고, 필터링한 결과에만 컬럼으로 붙인다.
+    speed_kmh = pd.Series(
+        np.where(dur > 0, df["trip_distance"] * MILES_TO_KM / (dur / 3600), np.nan),
+        index=df.index, name="speed_kmh")
 
     rules: list[tuple[str, pd.Series]] = [
         # 승차시각이 기준 월에 포함되는지 확인한다.
@@ -40,7 +42,7 @@ def filter_outliers(df: pd.DataFrame, cfg: Config) -> StepResult:
         ("amount", (df["total_amount"] > 0) & (df["fare_amount"] >= 0)),
 
         # 거리, 시간을 각각 봐서는 못 잡는 거리, 시간 조합형 오기록을 잡는다!
-        ("speed", df["speed_kmh"].isna() | (df["speed_kmh"] <= o.speed_max_kmh)),
+        ("speed", speed_kmh.isna() | (speed_kmh <= o.speed_max_kmh)),
     ]
 
     # 소요시간 정책에 따라 행을 제거하거나 플래그를 추가한다.
@@ -57,6 +59,7 @@ def filter_outliers(df: pd.DataFrame, cfg: Config) -> StepResult:
         prev = now
 
     out = df[keep].copy()
+    out["speed_kmh"] = speed_kmh[keep]
     if o.duration_policy == "flag":
         # 행은 유지하고 duration_valid 컬럼으로 표시한다.
         out["duration_valid"] = duration_ok.loc[out.index]
