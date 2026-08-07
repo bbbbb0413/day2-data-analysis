@@ -24,7 +24,7 @@ sys.path.insert(0, str(ROOT))
 
 from taxi_pipeline.config import load_config                       # noqa: E402
 from taxi_pipeline.steps.duplicates import _classify, deduplicate  # noqa: E402
-from taxi_pipeline.steps.features import engineer_features         # noqa: E402  🆕 [2026-08-06/유길선]
+from taxi_pipeline.steps.features import engineer_features         # noqa: E402
 from taxi_pipeline.steps.missing import analyze_missing, prepare_missing  # noqa: E402
 from taxi_pipeline.steps.outliers import filter_outliers           # noqa: E402
 

@@ -11,13 +11,9 @@ from .base import StepResult
 
 log = logging.getLogger(__name__)
 
-# ################################################################################
-# 🆕🆕🆕 [신규 2026-08-06 / 유길선] 파생변수 상수 🆕🆕🆕
-# 다른 임계값(예: outliers.speed_max_kmh)은 config/pipeline.toml에서 관리하지만,
-# 이 두 상수는 일부러 여기 로컬 상수로 뒀다 — config.py의 Config dataclass를
-# 새로 늘리는 건 파이프라인 구조 담당(윤서준) 영역이라, 최소 수정 원칙에 따라
-# 일단 이렇게 두고 필요해지면 TOML로 옮기기로 함.
-# ################################################################################
+# 다른 임계값(예: outliers.speed_max_kmh)은 config/pipeline.toml에서 관리하지만
+# 이 두 상수는 로컬에 둔다. TOML로 옮기려면 Config dataclass를 함께 늘려야 하고,
+# 그때는 값의 근거(러시아워 경계 등)도 같이 재검토해야 한다.
 RUSH_HOURS = {7, 8, 9, 16, 17, 18, 19}     # 출퇴근 시간대: 아침 7~9시, 저녁 16~19시
 AIRPORT_RATECODES = {2, 3}                 # TLC 코드북: 2=JFK, 3=Newark
 
@@ -27,12 +23,12 @@ def engineer_features(df: pd.DataFrame, cfg: Config) -> StepResult:
     pu = cfg.columns.pickup
     notes: list[str] = []
 
-    # ---- 🆕 is_rush_hour ---------------------------------------------------
+    # ---- is_rush_hour ------------------------------------------------------
     # 승차시각(pu)은 전 컬럼 중 결측 0건(§2.1)이라 record_source와 무관하게
     # 모든 행에서 계산 가능하다.
     df["is_rush_hour"] = df[pu].dt.hour.isin(RUSH_HOURS)
 
-    # ---- 🆕 is_airport_trip -------------------------------------------------
+    # ---- is_airport_trip ---------------------------------------------------
     # RatecodeID·Airport_fee는 §2의 5개 구조적 결측 컬럼에 속한다.
     # record_source="partial" 행은 이 두 컬럼 자체가 없으므로, False로 채우면
     # "공항 아님"과 "모름"을 섞어 fillna(0)이 congestion_surcharge를 왜곡시켰던
