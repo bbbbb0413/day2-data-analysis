@@ -165,11 +165,11 @@ _BUILDERS = [
 ]
 
 _HANDOFF_CAPTIONS = {
-    "missing_matrix": "결측치 위치 패턴(5만행 샘플). (노은서 handoff)",
-    "missing_bar": "컬럼별 non-null 개수 — 5개 결측 컬럼이 시각적으로 드러난다. (노은서 handoff)",
-    "missing_heatmap": "컬럼 간 결측 동시발생 상관관계. (노은서 handoff)",
-    "quality_issues": "정제 전 데이터 품질 이슈 요약. (노은서 handoff)",
-    "iqr_boxplot": "IQR 기준 수치형 컬럼 이상치. (노은서 handoff)",
+    "missing_matrix": "결측치 위치 패턴(5만행 샘플).",
+    "missing_bar": "컬럼별 non-null 개수 — 5개 결측 컬럼이 시각적으로 드러난다.",
+    "missing_heatmap": "컬럼 간 결측 동시발생 상관관계.",
+    "quality_issues": "정제 전 데이터 품질 이슈 요약.",
+    "iqr_boxplot": "IQR 기준 수치형 컬럼 이상치.",
 }
 
 
