@@ -63,64 +63,64 @@ def cmd_list_steps() -> int:
 
 
 def cmd_compare_loaders(cfg, input_path: Path) -> int:
-    """Pandas와 Polars의 parquet 로딩 결과를 비교한다."""
+    """Pandas와 Polars의 parquet 로딩 결과를 비교해 콘솔에 표로 출력한다.
+
+    비교 로직은 파이프라인 단계(`steps.loaders.compare_loaders`)를 그대로 쓴다.
+    CLI가 같은 판정을 다시 구현하면 기준을 바꿀 때 두 곳을 고쳐야 하고,
+    한 곳만 고치면 콘솔과 리포트가 서로 다른 값을 말한다.
+    """
     import time
+    from dataclasses import replace
 
-    import pandas as pd
-    import polars as pl
+    from taxi_pipeline.steps.loaders import compare_loaders
+    from taxi_pipeline.storage import read_parquet
 
-    # OS 페이지 캐시 영향을 줄이기 위해 파일을 한 번 읽는다.
-    with open(input_path, "rb") as f:
-        while f.read(1 << 24):
-            pass
+    # 단계는 cfg.paths.raw를 polars로 읽는다. --input을 받았으면 양쪽이 같은
+    # 파일을 보도록 설정을 바꿔서 넘긴다.
+    if input_path != cfg.paths.raw:
+        cfg = replace(cfg, paths=replace(cfg.paths, raw=input_path))
 
+    # pandas 로딩 시간은 단계가 재지 않으므로(이미 읽은 df를 받는다) 여기서 잰다.
     t = time.perf_counter()
-    ldf = pl.read_parquet(input_path)
-    pl_sec = time.perf_counter() - t
-    pl_nulls = dict(zip(ldf.columns, ldf.null_count().row(0)))
-    pl_exact = len(ldf) - ldf.n_unique()
-    pl_key = int(ldf.select(cfg.duplicates.key).is_duplicated().sum())
-    pl_size = ldf.estimated_size("mb")
-    pl_types = {c: str(t) for c, t in zip(ldf.columns, ldf.dtypes)}
-    pl_shape = ldf.shape
-    # pandas 로딩 전에 Polars 객체를 해제한다.
-    del ldf
-
-    t = time.perf_counter()
-    pdf = pd.read_parquet(input_path)
+    df = read_parquet(input_path)
     pd_sec = time.perf_counter() - t
-    pd_nulls = pdf.isna().sum().to_dict()
-    pd_exact = int(pdf.duplicated().sum())
-    pd_key = int(pdf.duplicated(subset=cfg.duplicates.key).sum())
-    pd_size = pdf.memory_usage(deep=True).sum() / 1024**2
 
+    m = compare_loaders(df, cfg).metrics
+    if m.get("skipped"):
+        log.error("원본 parquet을 찾지 못해 비교를 건너뛰었습니다: %s", cfg.paths.raw)
+        return EXIT_ERROR
+
+    pl_sec, pl_mb, pd_mb = m["polars_load_sec"], m["polars_size_mb"], m["pandas_size_mb"]
     print(f"\n입력 : {input_path}  ({input_path.stat().st_size / 1024**2:,.1f} MB)\n")
-    print(f"{'항목':<24}{'polars':>18}{'pandas':>18}")
+    print(f"{'항목':<24}{'polars ' + m['polars_version']:>18}"
+          f"{'pandas ' + m['pandas_version']:>18}")
     print("-" * 60)
     print(f"{'로딩 시간(초)':<24}{pl_sec:>18.3f}{pd_sec:>18.3f}")
-    print(f"{'DataFrame 크기(MB)':<24}{pl_size:>18,.1f}{pd_size:>18,.1f}")
-    print(f"{'shape':<24}{str(pl_shape):>18}{str(pdf.shape):>18}")
-    print(f"{'결측 총합':<24}{sum(pl_nulls.values()):>18,}{int(sum(pd_nulls.values())):>18,}")
-    print(f"{'완전중복':<24}{pl_exact:>18,}{pd_exact:>18,}")
+    print(f"{'DataFrame 크기(MB)':<24}{pl_mb:>18,.1f}{pd_mb:>18,.1f}")
     print(f"\n  → polars가 로딩 {pd_sec / max(pl_sec, 1e-9):.1f}배 빠르고 "
-          f"DataFrame이 {pd_size / pl_size:.2f}배 작다.")
+          f"DataFrame이 {pd_mb / pl_mb:.2f}배 작다.")
 
-    same_null = all(int(pl_nulls[c]) == int(pd_nulls[c]) for c in pd_nulls)
-    print(f"\n  [일치 검증] 컬럼별 결측수 {'OK' if same_null else '불일치'}"
-          f" / 완전중복 {'OK' if pl_exact == pd_exact else '불일치'}")
+    # shape·결측수·완전중복은 양쪽이 같은 값이어야 하므로 한 줄로 검증만 표시한다.
+    def ok(flag: bool) -> str:
+        """일치 여부를 표시 문자열로 바꾼다."""
+        return "OK" if flag else "불일치"
+
+    print(f"\n  [일치 검증] shape {ok(m['shape_match'])} {df.shape}"
+          f" / 컬럼별 결측수 {ok(m['nulls_match'])}"
+          f" / 완전중복 {ok(m['duplicates_match'])} ({m['exact_duplicates']:,}건)")
+    print(f"     → 이후 분석은 도구 선택과 무관한 데이터 자체의 성질이다.")
 
     # 부분키 중복 집계 기준을 비교한다.
     print(f"\n  [주의] 부분키 중복 정의 차이")
-    print(f"     polars is_duplicated().sum() = {pl_key:>9,}  (그룹 구성원 전부)")
-    print(f"     pandas duplicated().sum()    = {pd_key:>9,}  (첫 행 제외)")
+    print(f"     polars is_duplicated().sum() = {m['partial_key_polars']:>9,}  (그룹 구성원 전부)")
+    print(f"     pandas duplicated().sum()    = {m['partial_key_pandas']:>9,}  (첫 행 제외)")
 
     # 결측 정수 컬럼의 dtype 차이를 확인한다.
-    print(f"\n  [타입 복원 차이] 결측이 있는 정수 컬럼")
-    for col in pdf.columns:
-        p, l = str(pdf[col].dtype), pl_types[col]
-        if p.startswith("float") and l.startswith("Int"):
-            print(f"     {col:<24} pandas {p:<10} vs polars {l:<8}"
-                  f"  (결측 {int(pd_nulls[col]):,})")
+    if promoted := m.get("dtype_promoted"):
+        print(f"\n  [타입 복원 차이] 결측이 있는 정수 컬럼")
+        for p in promoted:
+            print(f"     {p['column']:<24} pandas {p['pandas']:<10} vs polars {p['polars']:<8}"
+                  f"  (결측 {p['nulls']:,})")
     return EXIT_OK
 
 
