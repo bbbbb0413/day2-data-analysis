@@ -19,16 +19,17 @@ import shutil
 import tempfile
 from pathlib import Path
 
-import matplotlib
-matplotlib.use("Agg")
-
 import matplotlib.pyplot as plt          # noqa: E402
 import pandas as pd                       # noqa: E402
 
 from ..config import Config               # noqa: E402
 from ..viz.quality_charts import generate_data_quality_charts  # noqa: E402
+from ..viz.style import (ACCENT, PAYMENT, PAYMENT_LABEL, POSITIVE,  # noqa: E402
+                         PRIMARY, setup_style)
 from .base import Artifact, StepResult    # noqa: E402
-from .visualize import _PAYMENT, _mpl, _setup_style  # noqa: E402  기존 헬퍼 재사용
+# is_rush_hour 정의를 파생변수 단계와 공유한다. 각자 하드코딩하면 정의가 갈린다.
+from .features import RUSH_HOURS          # noqa: E402
+from .visualize import mpl_artifact       # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -41,10 +42,10 @@ def _bytes_artifact(name: str, data: bytes, caption: str) -> Artifact:
 
 
 def _chart_data_quality_handoff(df: pd.DataFrame, cfg: Config):
-    """TEAM_HANDOFF_data_quality_charts.md 통합 — 결측(matrix/bar/heatmap) + 품질이슈 + IQR 박스플롯.
+    """결측(matrix/bar/heatmap) + 품질이슈 + IQR 박스플롯을 quality_charts 모듈로 만든다.
 
     generate_data_quality_charts()는 output_dir에 PNG를 즉시 파일로 써버리는 함수라
-    (Figure를 지연 반환하는 _mpl()과 다른 계약), 스크래치 디렉터리에서 실행시키고
+    (Figure를 지연 반환하는 mpl_artifact()와 다른 계약), 스크래치 디렉터리에서 실행시키고
     바이트를 메모리로 읽은 뒤 즉시 지운다. runner.py가 Artifact.save()를 호출하는
     시점은 이 함수가 끝난 한참 뒤라, TemporaryDirectory의 with블록을 여기서 닫아버리면
     그때는 이미 파일이 사라진 뒤라서 바이트로 읽어서 들고 있어야 한다.
@@ -75,12 +76,12 @@ def _chart_correlation_trap(df: pd.DataFrame, cfg: Config):
     corr_filtered = float(filt["trip_distance"].corr(filt["fare_amount"]))
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
-    axes[0].scatter(sample["trip_distance"], sample["fare_amount"], s=4, alpha=0.3, color="#4C72B0")
+    axes[0].scatter(sample["trip_distance"], sample["fare_amount"], s=4, alpha=0.3, color=PRIMARY)
     axes[0].set_title(f"원본 그대로 (r={corr_raw:.3f})", fontsize=11)
     axes[0].set_xlabel("trip_distance (mile)")
     axes[0].set_ylabel("fare_amount (USD)")
 
-    axes[1].scatter(filt["trip_distance"], filt["fare_amount"], s=4, alpha=0.3, color="#55A868")
+    axes[1].scatter(filt["trip_distance"], filt["fare_amount"], s=4, alpha=0.3, color=POSITIVE)
     axes[1].set_title(f"거리<50mi·요금<$200 필터링 (r={corr_filtered:.3f})", fontsize=11)
     axes[1].set_xlabel("trip_distance (mile)")
 
@@ -95,7 +96,7 @@ def _chart_correlation_trap(df: pd.DataFrame, cfg: Config):
                f"이상치를 먼저 제거한 뒤 상관·회귀분석을 해야 하는 이유다.")
     metrics = {"corr_raw": corr_raw, "corr_filtered": corr_filtered,
                "trip_distance_max": float(df["trip_distance"].max())}
-    return _mpl(fig, "raw_03_correlation_trap.png", caption, cfg.visualize.dpi), metrics
+    return mpl_artifact(fig, "raw_03_correlation_trap.png", caption, cfg.visualize.dpi), metrics
 
 
 # ============================================================================
@@ -107,7 +108,7 @@ def _chart_hourly_raw(df: pd.DataFrame, cfg: Config):
     counts = df[pu].dt.hour.value_counts().sort_index()
 
     fig, ax = plt.subplots(figsize=(10, 4.5))
-    colors = ["#4C72B0" if h not in (7, 8, 9, 16, 17, 18, 19) else "#C44E52" for h in counts.index]
+    colors = [ACCENT if h in RUSH_HOURS else PRIMARY for h in counts.index]
     ax.bar(counts.index, counts.values, color=colors)
     ax.set_title("시간대별 운행 수 (원본) — 빨강 = 현재 is_rush_hour 정의(7-9시·16-19시)", fontsize=11)
     ax.set_xlabel("승차 시간대 (시)")
@@ -124,7 +125,7 @@ def _chart_hourly_raw(df: pd.DataFrame, cfg: Config):
     metrics = {"peak_hour": peak, "peak_trips": int(counts[peak]),
                "low_hour": low, "low_trips": int(counts[low]),
                "morning_increase_7_to_9": morning_slope}
-    return _mpl(fig, "raw_04_hourly_pattern.png", caption, cfg.visualize.dpi), metrics
+    return mpl_artifact(fig, "raw_04_hourly_pattern.png", caption, cfg.visualize.dpi), metrics
 
 
 # ============================================================================
@@ -132,26 +133,26 @@ def _chart_hourly_raw(df: pd.DataFrame, cfg: Config):
 # ============================================================================
 def _chart_payment_tip_raw(df: pd.DataFrame, cfg: Config):
     """현금 결제의 팁이 구조적으로 0인지 원본에서 바로 확인한다."""
-    d = df[df["payment_type"].isin(_PAYMENT)].copy()
-    d["결제방식"] = d["payment_type"].map(_PAYMENT)
+    d = df[df["payment_type"].isin(PAYMENT)].copy()
+    d[PAYMENT_LABEL] = d["payment_type"].map(PAYMENT)
     sample = d.sample(n=min(50_000, len(d)), random_state=42)
 
     fig, ax = plt.subplots(figsize=(9, 5))
-    order = list(_PAYMENT.values())
-    data = [sample.loc[sample["결제방식"] == p, "tip_amount"].clip(upper=20) for p in order]
+    order = list(PAYMENT.values())
+    data = [sample.loc[sample[PAYMENT_LABEL] == p, "tip_amount"].clip(upper=20) for p in order]
     ax.boxplot(data, tick_labels=order, showfliers=False)
     ax.set_title("결제 방식별 팁 금액 분포 (원본, 5만행 샘플)", fontsize=12)
     ax.set_ylabel("팁 (USD)")
     fig.tight_layout()
 
-    cash_zero_ratio = float((d.loc[d["결제방식"] == "현금", "tip_amount"] == 0).mean())
-    card_median = float(d.loc[d["결제방식"] == "카드", "tip_amount"].median())
+    cash_zero_ratio = float((d.loc[d[PAYMENT_LABEL] == "현금", "tip_amount"] == 0).mean())
+    card_median = float(d.loc[d[PAYMENT_LABEL] == "카드", "tip_amount"].median())
     caption = (f"현금 결제는 팁이 {cash_zero_ratio:.1%} 0으로 기록되는 반면, 카드 결제는 "
                f"중앙값 ${card_median:.2f}로 폭넓게 분포한다. 현금 팁이 실제로 없었던 게 "
                f"아니라 시스템에 기록되지 않는 구조적 특성이므로, 팁 분석은 카드결제만 "
                f"필터링해야 한다.")
     metrics = {"cash_zero_ratio": cash_zero_ratio, "card_tip_median": card_median}
-    return _mpl(fig, "raw_05_payment_tip.png", caption, cfg.visualize.dpi), metrics
+    return mpl_artifact(fig, "raw_05_payment_tip.png", caption, cfg.visualize.dpi), metrics
 
 
 # ============================================================================
@@ -174,7 +175,7 @@ _HANDOFF_CAPTIONS = {
 
 def visualize_raw_step(df: pd.DataFrame, cfg: Config) -> StepResult:
     """정제 전 원본 데이터를 시각화해 정제 기준 설계의 근거를 남긴다. DataFrame은 바꾸지 않는다."""
-    font = _setup_style(cfg)
+    font = setup_style(cfg)
     log.info("원본 데이터 시각화 시작 (폰트: %s)", font)
 
     artifacts: list[Artifact] = []

@@ -5,43 +5,21 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import matplotlib
-# 화면이 없는 환경에서도 저장할 수 있도록 Agg 백엔드를 사용한다.
-matplotlib.use("Agg")
-
 import matplotlib.pyplot as plt          # noqa: E402
 import numpy as np                        # noqa: E402
 import pandas as pd                       # noqa: E402
 import seaborn as sns                     # noqa: E402
 
 from ..config import Config               # noqa: E402
+# 색상·라벨·폰트는 viz.style 한곳에서 관리한다(Agg 백엔드 설정도 그쪽에 있다).
+from ..viz.style import (ACCENT, DOW, PAYMENT, PAYMENT_LABEL, POSITIVE,  # noqa: E402
+                         PRIMARY, SECONDARY, setup_style)
 from .base import Artifact, StepResult    # noqa: E402
 
 log = logging.getLogger(__name__)
 
-_DOW = ["월", "화", "수", "목", "금", "토", "일"]
-# 결제수단 코드를 화면에 표시할 이름으로 변환한다.
-_PAYMENT = {1: "카드", 2: "현금", 3: "무료", 4: "분쟁"}
 
-
-def _setup_style(cfg: Config) -> str:
-    """한글 폰트와 공통 차트 설정을 적용한다."""
-    from matplotlib import font_manager as fm
-
-    available = {f.name for f in fm.fontManager.ttflist}
-    chosen = next((f for f in cfg.visualize.font_candidates if f in available), None)
-    if not chosen:
-        log.warning("한글 폰트를 찾지 못했습니다. 축 레이블이 깨질 수 있습니다.")
-        chosen = "DejaVu Sans"
-
-    plt.rcParams["font.family"] = chosen
-    # 한글 폰트에서 음수 기호가 깨지지 않도록 설정한다.
-    plt.rcParams["axes.unicode_minus"] = False
-    sns.set_theme(style="whitegrid", font=chosen, rc={"axes.unicode_minus": False})
-    return chosen
-
-
-def _mpl(fig, name: str, caption: str, dpi: int) -> Artifact:
+def mpl_artifact(fig, name: str, caption: str, dpi: int) -> Artifact:
     """Matplotlib Figure를 PNG 산출물로 변환한다."""
     def save(path: Path) -> None:
         """Figure를 PNG로 저장한다."""
@@ -86,10 +64,10 @@ def _chart_distributions(df: pd.DataFrame, cfg: Config):
     for ax, (key, s, label, xmax) in zip(axes.ravel(), panels):
         shown = s[(s >= 0) & (s <= xmax)]
         mean, median = float(s.mean()), float(s.median())
-        ax.hist(shown, bins=60, color="#4C72B0", edgecolor="none")
-        ax.axvline(mean, color="#C44E52", linestyle="--", linewidth=1.8,
+        ax.hist(shown, bins=60, color=PRIMARY, edgecolor="none")
+        ax.axvline(mean, color=ACCENT, linestyle="--", linewidth=1.8,
                    label=f"평균 {mean:.2f}")
-        ax.axvline(median, color="#55A868", linewidth=1.8, label=f"중앙값 {median:.2f}")
+        ax.axvline(median, color=POSITIVE, linewidth=1.8, label=f"중앙값 {median:.2f}")
         ax.set_title(f"{label} — 평균/중앙값 {mean / median:.2f}배", fontsize=11)
         ax.set_xlabel(label)
         ax.set_ylabel("운행 건수")
@@ -107,7 +85,7 @@ def _chart_distributions(df: pd.DataFrame, cfg: Config):
                f"'평균'으로 전형적인 운행을 설명하면 안 된다. "
                f"가독성을 위해 각 패널의 x축 상한을 잘랐다(표시 범위가 전체의 "
                f"{min(v['coverage'] for v in stats.values()):.1%} 이상).")
-    return _mpl(fig, "01_numeric_distributions.png", caption, cfg.visualize.dpi), stats
+    return mpl_artifact(fig, "01_numeric_distributions.png", caption, cfg.visualize.dpi), stats
 
 
 # ============================================================================
@@ -143,7 +121,7 @@ def _chart_correlation(df: pd.DataFrame, cfg: Config):
                f"팁이 0인 건이 대량이라 순위 계산에서 동점이 생긴 결과다. "
                f"상관은 인과가 아니다.")
     metrics = {"max_gap": {"pair": [cols[i], cols[j]], "gap": gap}}
-    return _mpl(fig, "02_correlation_heatmap.png", caption, cfg.visualize.dpi), metrics
+    return mpl_artifact(fig, "02_correlation_heatmap.png", caption, cfg.visualize.dpi), metrics
 
 
 # ============================================================================
@@ -157,12 +135,12 @@ def _chart_hourly(df: pd.DataFrame, cfg: Config):
         dist=("trip_distance", "mean"))
 
     fig, axes = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
-    axes[0].bar(g.index, g["trips"], color="#4C72B0")
+    axes[0].bar(g.index, g["trips"], color=PRIMARY)
     axes[0].set_title("시간대별 운행량", fontsize=12)
     axes[0].set_ylabel("운행 건수")
 
-    axes[1].plot(g.index, g["fare"], marker="o", color="#C44E52", label="평균 요금 (USD)")
-    axes[1].plot(g.index, g["dist"], marker="s", color="#55A868", label="평균 거리 (mile)")
+    axes[1].plot(g.index, g["fare"], marker="o", color=ACCENT, label="평균 요금 (USD)")
+    axes[1].plot(g.index, g["dist"], marker="s", color=POSITIVE, label="평균 거리 (mile)")
     axes[1].set_title("시간대별 평균 요금·거리", fontsize=12)
     axes[1].set_xlabel("승차 시간대 (시)")
     axes[1].set_ylabel("평균값")
@@ -181,7 +159,7 @@ def _chart_hourly(df: pd.DataFrame, cfg: Config):
                f"장거리 운행 비중이 크기 때문이다(평균 거리 선 참고).")
     metrics = {"peak_hour": peak, "quietest_hour": low,
                "max_fare_hour": fmax, "min_fare_hour": fmin}
-    return _mpl(fig, "03_hourly_pattern.png", caption, cfg.visualize.dpi), metrics
+    return mpl_artifact(fig, "03_hourly_pattern.png", caption, cfg.visualize.dpi), metrics
 
 
 # ============================================================================
@@ -193,18 +171,18 @@ def _chart_weekday(df: pd.DataFrame, cfg: Config):
     g = df.groupby(df[pu].dt.dayofweek).agg(
         trips=("total_amount", "size"), fare=("fare_amount", "mean"),
         tip=("tip_amount", "mean")).sort_index()
-    labels = [_DOW[i] for i in g.index]
+    labels = [DOW[i] for i in g.index]
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
-    axes[0].bar(labels, g["trips"], color="#4C72B0")
+    axes[0].bar(labels, g["trips"], color=PRIMARY)
     axes[0].set_title("요일별 운행량", fontsize=12)
     axes[0].set_xlabel("요일")
     axes[0].set_ylabel("운행 건수")
 
     x = np.arange(len(labels))
     w = 0.38
-    axes[1].bar(x - w / 2, g["fare"], w, label="평균 요금 (USD)", color="#C44E52")
-    axes[1].bar(x + w / 2, g["tip"], w, label="평균 팁 (USD)", color="#55A868")
+    axes[1].bar(x - w / 2, g["fare"], w, label="평균 요금 (USD)", color=ACCENT)
+    axes[1].bar(x + w / 2, g["tip"], w, label="평균 팁 (USD)", color=POSITIVE)
     axes[1].set_title("요일별 평균 요금·팁", fontsize=12)
     axes[1].set_xlabel("요일")
     axes[1].set_ylabel("금액 (USD)")
@@ -214,14 +192,14 @@ def _chart_weekday(df: pd.DataFrame, cfg: Config):
 
     tmax, tmin = int(g["trips"].idxmax()), int(g["trips"].idxmin())
     pmax, pmin = int(g["tip"].idxmax()), int(g["tip"].idxmin())
-    caption = (f"운행량은 {_DOW[tmax]}요일이 최다({int(g.loc[tmax, 'trips']):,}건), "
-               f"{_DOW[tmin]}요일이 최소({int(g.loc[tmin, 'trips']):,}건)다. "
-               f"평균 팁은 {_DOW[pmax]}요일이 가장 높고({g.loc[pmax, 'tip']:.2f} USD) "
-               f"{_DOW[pmin]}요일이 가장 낮다({g.loc[pmin, 'tip']:.2f} USD). "
+    caption = (f"운행량은 {DOW[tmax]}요일이 최다({int(g.loc[tmax, 'trips']):,}건), "
+               f"{DOW[tmin]}요일이 최소({int(g.loc[tmin, 'trips']):,}건)다. "
+               f"평균 팁은 {DOW[pmax]}요일이 가장 높고({g.loc[pmax, 'tip']:.2f} USD) "
+               f"{DOW[pmin]}요일이 가장 낮다({g.loc[pmin, 'tip']:.2f} USD). "
                f"운행량은 절대 건수라 요일별 일수 차이(2026-05는 금·토가 5회, "
                f"나머지는 4회)의 영향을 받는다.")
     metrics = {"busiest_dow": tmax, "quietest_dow": tmin, "best_tip_dow": pmax}
-    return _mpl(fig, "04_weekday_pattern.png", caption, cfg.visualize.dpi), metrics
+    return mpl_artifact(fig, "04_weekday_pattern.png", caption, cfg.visualize.dpi), metrics
 
 
 # ============================================================================
@@ -238,17 +216,17 @@ def _chart_distance_fare(df: pd.DataFrame, cfg: Config):
     labels = [f"{int(i.left)}~{int(i.right)}" for i in g.index]
 
     fig, ax1 = plt.subplots(figsize=(12, 5.5))
-    ax1.bar(labels, g["fare"], color="#4C72B0", label="평균 요금 (USD)")
+    ax1.bar(labels, g["fare"], color=PRIMARY, label="평균 요금 (USD)")
     ax1.set_xlabel("이동거리 구간 (mile)")
-    ax1.set_ylabel("평균 요금 (USD)", color="#4C72B0")
-    ax1.tick_params(axis="y", labelcolor="#4C72B0")
+    ax1.set_ylabel("평균 요금 (USD)", color=PRIMARY)
+    ax1.tick_params(axis="y", labelcolor=PRIMARY)
 
     # 마일당 요금은 보조축에 표시한다.
     ax2 = ax1.twinx()
-    ax2.plot(labels, g["per_mile"], marker="o", color="#C44E52", linewidth=2,
+    ax2.plot(labels, g["per_mile"], marker="o", color=ACCENT, linewidth=2,
              label="마일당 요금 중앙값 (USD/mile)")
-    ax2.set_ylabel("마일당 요금 (USD/mile)", color="#C44E52")
-    ax2.tick_params(axis="y", labelcolor="#C44E52")
+    ax2.set_ylabel("마일당 요금 (USD/mile)", color=ACCENT)
+    ax2.tick_params(axis="y", labelcolor=ACCENT)
     ax2.grid(False)
 
     ax1.set_title("거리 구간별 요금 — 거리가 늘수록 마일당 단가는 떨어진다", fontsize=13)
@@ -263,7 +241,7 @@ def _chart_distance_fare(df: pd.DataFrame, cfg: Config):
                f"마일당 요금은 극단값에 끌리지 않도록 중앙값을 썼다.")
     metrics = {"per_mile_first": first, "per_mile_last": last,
                "buckets": {l: int(n) for l, n in zip(labels, g["trips"])}}
-    return _mpl(fig, "05_distance_fare_relation.png", caption, cfg.visualize.dpi), metrics
+    return mpl_artifact(fig, "05_distance_fare_relation.png", caption, cfg.visualize.dpi), metrics
 
 
 # ============================================================================
@@ -272,19 +250,19 @@ def _chart_distance_fare(df: pd.DataFrame, cfg: Config):
 def _chart_payment_tip(df: pd.DataFrame, cfg: Config):
     """결제수단별 운행량과 팁 0 비율을 비교한다."""
     d = df.copy()
-    d["결제수단"] = d["payment_type"].map(_PAYMENT).fillna("미기재")
-    g = d.groupby("결제수단").agg(
+    d[PAYMENT_LABEL] = d["payment_type"].map(PAYMENT).fillna("미기재")
+    g = d.groupby(PAYMENT_LABEL).agg(
         trips=("tip_amount", "size"), mean_tip=("tip_amount", "mean"),
         zero_ratio=("tip_amount", lambda s: float((s == 0).mean())))
     g = g.sort_values("trips", ascending=False)
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
-    axes[0].bar(g.index, g["trips"], color="#4C72B0")
+    axes[0].bar(g.index, g["trips"], color=PRIMARY)
     axes[0].set_title("결제수단별 운행 건수", fontsize=12)
     axes[0].set_xlabel("결제수단")
     axes[0].set_ylabel("운행 건수")
 
-    axes[1].bar(g.index, g["zero_ratio"] * 100, color="#C44E52")
+    axes[1].bar(g.index, g["zero_ratio"] * 100, color=ACCENT)
     axes[1].set_title("결제수단별 '팁 0' 비율", fontsize=12)
     axes[1].set_xlabel("결제수단")
     axes[1].set_ylabel("팁이 0인 비율 (%)")
@@ -303,7 +281,7 @@ def _chart_payment_tip(df: pd.DataFrame, cfg: Config):
                f"'팁 행동 차이'로 오독하게 된다.")
     metrics = {k: {"trips": int(v["trips"]), "mean_tip": float(v["mean_tip"]),
                    "zero_ratio": float(v["zero_ratio"])} for k, v in g.iterrows()}
-    return _mpl(fig, "06_payment_tip.png", caption, cfg.visualize.dpi), metrics
+    return mpl_artifact(fig, "06_payment_tip.png", caption, cfg.visualize.dpi), metrics
 
 
 # ============================================================================
@@ -322,7 +300,7 @@ def _chart_source_profile(df: pd.DataFrame, cfg: Config):
                     ("tip", "평균 팁 (USD)"), ("total", "평균 총액 (USD)")]
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
-    axes[0].bar(g.index, g["trips"], color=["#4C72B0", "#DD8452"])
+    axes[0].bar(g.index, g["trips"], color=[PRIMARY, SECONDARY])
     axes[0].set_title("소스별 운행 건수", fontsize=12)
     axes[0].set_xlabel("record_source")
     axes[0].set_ylabel("운행 건수")
@@ -349,7 +327,7 @@ def _chart_source_profile(df: pd.DataFrame, cfg: Config):
                f"record_source로 구분해 둔 이유가 여기 있다.")
     metrics = {str(k): {"trips": int(v["trips"]), "mean_tip": float(v["tip"]),
                         "mean_fare": float(v["fare"])} for k, v in g.iterrows()}
-    return _mpl(fig, "07_source_profile.png", caption, cfg.visualize.dpi), metrics
+    return mpl_artifact(fig, "07_source_profile.png", caption, cfg.visualize.dpi), metrics
 
 
 # ============================================================================
@@ -366,7 +344,7 @@ def _chart_demand_heatmap(df: pd.DataFrame, cfg: Config):
 
     fig = go.Figure(go.Heatmap(
         z=pivot.values, x=[f"{h}시" for h in pivot.columns],
-        y=[_DOW[i] for i in pivot.index],
+        y=[DOW[i] for i in pivot.index],
         # 운행량 크기를 표현하기 위해 순차형 색상을 사용한다.
         colorscale="YlOrRd", colorbar=dict(title="운행 건수"),
         hovertemplate="%{y}요일 %{x}<br>운행 %{z:,}건<extra></extra>",
@@ -382,8 +360,8 @@ def _chart_demand_heatmap(df: pd.DataFrame, cfg: Config):
     flat = pivot.stack()
     (pd_, ph_), peak = flat.idxmax(), int(flat.max())
     (ld_, lh_), low = flat.idxmin(), int(flat.min())
-    caption = (f"최다는 {_DOW[pd_]}요일 {ph_}시({peak:,}건), 최소는 "
-               f"{_DOW[ld_]}요일 {lh_}시({low:,}건)로 {peak / max(low, 1):.0f}배 "
+    caption = (f"최다는 {DOW[pd_]}요일 {ph_}시({peak:,}건), 최소는 "
+               f"{DOW[ld_]}요일 {lh_}시({low:,}건)로 {peak / max(low, 1):.0f}배 "
                f"차이난다. 평일 출퇴근 시간대와 주말 심야에 수요가 몰린다.")
     metrics = {"peak": {"dayofweek": int(pd_), "hour": int(ph_), "trips": peak},
                "lowest": {"dayofweek": int(ld_), "hour": int(lh_), "trips": low}}
@@ -402,7 +380,7 @@ def _chart_daily_trend(df: pd.DataFrame, cfg: Config):
         trips=("total_amount", "size"), fare=("fare_amount", "mean"))
     dates = pd.to_datetime(g.index)
     # 주말 막대는 다른 색으로 표시한다.
-    colors = ["#C44E52" if d.dayofweek >= 5 else "#4C72B0" for d in dates]
+    colors = [ACCENT if d.dayofweek >= 5 else PRIMARY for d in dates]
 
     fig = go.Figure()
     fig.add_bar(x=dates, y=g["trips"], marker_color=colors, name="운행 건수",
@@ -440,7 +418,7 @@ def _chart_top_zones(df: pd.DataFrame, cfg: Config):
     share = top / len(df) * 100
 
     fig = go.Figure(go.Bar(
-        x=labels, y=top.values, marker_color="#4C72B0",
+        x=labels, y=top.values, marker_color=PRIMARY,
         customdata=np.stack([share.values,
                              zone_stats.loc[top.index, "fare"].values,
                              zone_stats.loc[top.index, "dist"].values], axis=-1),
@@ -483,7 +461,7 @@ _BUILDERS = [
 
 def visualize_step(df: pd.DataFrame, cfg: Config) -> StepResult:
     """차트를 생성하고 Artifact 목록으로 반환한다."""
-    font = _setup_style(cfg)
+    font = setup_style(cfg)
     log.info("시각화 시작 (폰트 %s, %s행)", font, f"{len(df):,}")
 
     artifacts, metrics, notes = [], {"font": font}, []

@@ -12,6 +12,10 @@ from .base import StepResult
 
 log = logging.getLogger(__name__)
 
+# TLC 원본은 거리를 mile로 기록하지만 속력 상한(cfg.outliers.speed_max_kmh)은
+# km/h로 잡혀 있어 환산이 필요하다.
+MILES_TO_KM = 1.60934
+
 
 def filter_outliers(df: pd.DataFrame, cfg: Config) -> StepResult:
     """물리적으로 불가능하거나 명백한 오기록을 제거한다."""
@@ -24,7 +28,8 @@ def filter_outliers(df: pd.DataFrame, cfg: Config) -> StepResult:
     duration_ok = dur.between(o.duration_min_sec, o.duration_max_sec)
 
     # 속력(km/h) = 거리(mile→km 환산) / 소요시간(초→시간 환산) 으로 계산한다.
-    df["speed_kmh"] = np.where(dur > 0, df["trip_distance"] * 1.60934 / (dur / 3600), np.nan)
+    df["speed_kmh"] = np.where(dur > 0,
+                               df["trip_distance"] * MILES_TO_KM / (dur / 3600), np.nan)
 
     rules: list[tuple[str, pd.Series]] = [
         # 승차시각이 기준 월에 포함되는지 확인한다.
