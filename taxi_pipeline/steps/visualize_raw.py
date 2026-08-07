@@ -1,6 +1,5 @@
-"""[신규 단계] 원본 데이터 시각화 — 유길선 초안 + 노은서 handoff 통합 (2026-08-06)
+"""원본 데이터 시각화 — 정제 전 raw 데이터로 EDA를 수행한다.
 
-정제(결측·중복·이상치 처리)를 하기 **전** raw 데이터를 그대로 시각화한다.
 목적이 다른 두 시각화 단계를 분리한 이유:
   - `visualize.py`(정제 후) : 정제된 데이터가 어떻게 생겼는지 "보여주는" 용도
   - `visualize_raw.py`(정제 전) : 정제 기준을 "발견"하는 용도(EDA 본연의 목적)
@@ -8,18 +7,15 @@
 여기서 나온 발견(결측 구조, 극단 이상치가 상관관계를 가리는 문제, 시간대 패턴 등)이
 이후 missing/duplicates/outliers/features 단계의 처리 기준을 설계하는 근거가 된다.
 
-결측·품질이슈·IQR 이상치 차트는 `TEAM_HANDOFF_data_quality_charts.md`로 넘겨받은
-노은서의 `data_quality_charts.py`(저장소 루트)를 그대로 호출해서 만든다 — 같은
-내용을 우리가 따로 다시 그리면 중복이라, 손으로 만든 버전은 걷어내고 그쪽 산출물을
-쓴다. `correlation_trap`/`hourly_pattern_raw`/`payment_tip_raw`는 handoff에 없는
-내용이라 그대로 유지한다. Borough/Zone 단위 분석 등은 아직 없다.
+결측·품질이슈·IQR 이상치 차트는 `taxi_pipeline/viz/quality_charts.py`를 호출해서
+만든다(노트북 Part 5·12를 함수로 뺀 모듈). `correlation_trap`·`hourly_pattern_raw`·
+`payment_tip_raw`는 그 모듈에 없어서 이 파일에서 직접 그린다.
 """
 
 from __future__ import annotations
 
 import logging
 import shutil
-import sys
 import tempfile
 from pathlib import Path
 
@@ -30,22 +26,11 @@ import matplotlib.pyplot as plt          # noqa: E402
 import pandas as pd                       # noqa: E402
 
 from ..config import Config               # noqa: E402
+from ..viz.quality_charts import generate_data_quality_charts  # noqa: E402
 from .base import Artifact, StepResult    # noqa: E402
 from .visualize import _PAYMENT, _mpl, _setup_style  # noqa: E402  기존 헬퍼 재사용
 
 log = logging.getLogger(__name__)
-
-
-# ============================================================================
-# 0. 노은서 handoff(data_quality_charts.py) 연동
-# ============================================================================
-def _load_handoff():
-    """data_quality_charts.py는 저장소 루트(taxi_pipeline 패키지 밖)에 있어 지연 임포트한다."""
-    root = Path(__file__).resolve().parents[2]  # taxi_pipeline/steps/ -> 저장소 루트
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-    from data_quality_charts import generate_data_quality_charts
-    return generate_data_quality_charts
 
 
 def _bytes_artifact(name: str, data: bytes, caption: str) -> Artifact:
@@ -64,12 +49,12 @@ def _chart_data_quality_handoff(df: pd.DataFrame, cfg: Config):
     시점은 이 함수가 끝난 한참 뒤라, TemporaryDirectory의 with블록을 여기서 닫아버리면
     그때는 이미 파일이 사라진 뒤라서 바이트로 읽어서 들고 있어야 한다.
     """
-    generate = _load_handoff()
     nullable = [c for c in cfg.columns.missing_group if c in df.columns]
 
     tmp = tempfile.mkdtemp(prefix="dq_charts_")
     try:
-        dq = generate(df, output_dir=tmp, month_label=cfg.month, nullable_columns=nullable)
+        dq = generate_data_quality_charts(df, output_dir=tmp, month_label=cfg.month,
+                                          nullable_columns=nullable)
         image_bytes = {k: Path(p).read_bytes() for k, p in dq["images"].items()}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -196,11 +181,16 @@ def visualize_raw_step(df: pd.DataFrame, cfg: Config) -> StepResult:
     metrics: dict = {}
     notes: list[str] = []
 
-    # ---- 노은서 handoff: 결측(matrix/bar/heatmap) + 품질이슈 + IQR 박스플롯 -------
+    # ---- 결측(matrix/bar/heatmap) + 품질이슈 + IQR 박스플롯 ----------------------
     try:
         image_bytes, dq_stats = _chart_data_quality_handoff(df, cfg)
-    except Exception:
-        log.exception("노은서 handoff(data_quality_charts) 생성 실패 — 건너뛴다")
+    except Exception as e:
+        # 차트가 빠진 사실을 리포트에도 남긴다. 로그만 남기면 리포트만 읽는
+        # 사람은 5개 차트가 원래 없었던 것으로 오해한다.
+        log.exception("데이터 품질 차트 생성 실패 — 건너뛴다")
+        notes.append(
+            f"[한계] 데이터 품질 차트(결측 matrix/bar/heatmap · 품질이슈 · IQR 박스플롯) "
+            f"생성에 실패해 이 리포트에서 빠졌다: {type(e).__name__}: {e}")
     else:
         for key, data in image_bytes.items():
             artifacts.append(_bytes_artifact(

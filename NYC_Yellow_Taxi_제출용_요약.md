@@ -56,7 +56,7 @@ RatecodeID와 LocationID는 공항 운행 판별에 사용된다.
 
 결측·중복·이상치를 정제하기 **전** 원본 데이터(4,090,836행 × 20열)를 Pandas·Polars
 양쪽으로 로딩해 결과가 일치함을 확인한 뒤, 그대로 시각화하여 다음을 발견하였다
-(`02_visualization_original.ipynb`) 참조.
+(`visualization_original.ipynb`) 참조.
 
 - **결측치**: 5개 컬럼(`passenger_count`, `RatecodeID`, `store_and_fwd_flag`,
   `congestion_surcharge`, `Airport_fee`)이 정확히 같은 955,371행(23.35%)에서 결측

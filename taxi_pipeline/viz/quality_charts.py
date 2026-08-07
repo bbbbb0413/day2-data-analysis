@@ -1,15 +1,15 @@
 """
 자동화 파이프라인에 붙이는 '결측치 & 이상치' 시각화 모듈.
 
-02_visualization_original.ipynb의 Part 5(결측치 & 데이터 품질 이슈)와
+visualization_original.ipynb의 Part 5(결측치 & 데이터 품질 이슈)와
 Part 12(수치형 이상치 박스플롯)를 그대로 재현하되, 노트북이 아니라
 어떤 월의 DataFrame이 들어와도 재사용 가능한 함수 형태로 뺀 것이다.
 
 파이프라인 쪽에서 할 일은 단 하나:
-    from data_quality_charts import generate_data_quality_charts
+    from taxi_pipeline.viz.quality_charts import generate_data_quality_charts
     result = generate_data_quality_charts(df, output_dir=..., month_label="2026-06")
-그리고 result["markdown"]을 report.md의 원하는 위치에 그대로 삽입하거나,
-result["stats"] 안의 숫자를 자기 템플릿에 채워 넣으면 된다.
+그리고 result["stats"] 안의 숫자를 리포트 템플릿에 채워 넣으면 된다
+(현재 `steps/visualize_raw.py`가 이 방식으로 쓴다). result["markdown"]도 있다.
 """
 
 from __future__ import annotations

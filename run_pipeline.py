@@ -198,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print()
     print(render_console_summary(result.metrics, result.gates))
-    print(f"리포트: {result.manifest.outputs.get('report_revised', '-')}")
+    print(f"리포트: {result.manifest.outputs.get('report', '-')}")
 
     if result.gate_failures:
         log.error("품질 게이트 %d개 실패 — 산출물을 신뢰할 수 없다",

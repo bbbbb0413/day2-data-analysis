@@ -3,7 +3,9 @@
 - **대상 데이터** : `data/raw/yellow_tripdata_2026-05.parquet` (66.5 MB, 4,090,836행 × 20열)
 - **작성일** : 2026-08-04 (2026-08-05 parquet 기준으로 갱신)
 - **분석 도구** : pandas 2.3.3 / polars 1.43.2 (Python 3.11.15)
-- **구현** : `taxi_eda_pipeline.py` — 이 문서의 모든 기준을 코드로 옮기고 기대값을 대조한다
+- **구현** : `taxi_pipeline/` 패키지 — 이 문서의 모든 기준을 단계별 모듈(`steps/missing.py`,
+  `steps/duplicates.py`, `steps/outliers.py`)로 옮기고, `config/pipeline.toml`의 품질
+  게이트로 기대값을 대조한다
 - **목적** : "결측치는 어떻게 채우고, 중복은 어떤 키로 지울 것인가"를 관례가 아니라
   **이 데이터에서 실제로 관측된 근거**로 결정한다.
 
@@ -416,7 +418,8 @@ B키를 찾아냈으니 `df.drop_duplicates(subset=B)`를 쓰고 싶어지지만
 
 ### ★ 소요시간 기준의 부작용 — 사업자 하나가 통째로 사라진다 (파이프라인 실행 중 발견)
 
-`taxi_eda_pipeline.py`에 넣은 자동 점검(필터 전후 `VendorID` 구성 비교)에서 잡힌 문제다.
+`taxi_pipeline/steps/outliers.py`에 넣은 자동 점검(필터 전후 `VendorID` 구성 비교)에서
+잡힌 문제다.
 
 | 관측 | 값 |
 |---|---:|
@@ -543,7 +546,7 @@ df = df[
 ]
 ```
 
-> 실행 가능한 전체 구현은 **`taxi_eda_pipeline.py`**에 있다.
+> 실행 가능한 전체 구현은 **`taxi_pipeline/steps/`**에 있고 `python run_pipeline.py`로 돌린다.
 > 각 임계값 위에 이 문서의 몇 절을 근거로 삼았는지 주석으로 달아 두었고,
 > 마지막 단계에서 위 표의 기대값(행 수·그룹 수 등 7개 항목)과 실측을 대조한다.
 > `yellow_tripdata_2026-05.parquet`으로 실행해 **7개 항목 전부 일치**를 확인했다.

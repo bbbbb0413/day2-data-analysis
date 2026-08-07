@@ -1,13 +1,13 @@
 # [연동 요청] 자동화 파이프라인 report.md에 결측치/이상치 시각화 붙이기
 
 ## 배경
-시각화 파트에서 만든 EDA 노트북(`02_visualization_original.ipynb`) 중 **Part 5(결측치 & 데이터 품질 이슈)**, **Part 12(수치형 이상치 IQR 박스플롯)** 두 섹션을 자동화 파이프라인의 `report.md` 생성 결과에 포함시키고 싶습니다. 매달(4월/5월/6월...) 원본 데이터가 다르므로 결측 건수·이상치 비율·차트가 **실행할 때마다 그 달 데이터 기준으로 다시 계산/생성**돼야 합니다. 지금은 6월 데이터만 우선 처리하면 되고, 여러 달을 동시에 비교 보관하는 기능은 이번 스코프에 없습니다.
+시각화 파트에서 만든 EDA 노트북(`visualization_original.ipynb`) 중 **Part 5(결측치 & 데이터 품질 이슈)**, **Part 12(수치형 이상치 IQR 박스플롯)** 두 섹션을 자동화 파이프라인의 `report.md` 생성 결과에 포함시키고 싶습니다. 매달(4월/5월/6월...) 원본 데이터가 다르므로 결측 건수·이상치 비율·차트가 **실행할 때마다 그 달 데이터 기준으로 다시 계산/생성**돼야 합니다. 지금은 6월 데이터만 우선 처리하면 되고, 여러 달을 동시에 비교 보관하는 기능은 이번 스코프에 없습니다.
 
 ## 넘기는 것
-`data_quality_charts.py` 1개 파일. 노트북 Part 5 + Part 12 로직을 함수 하나로 뺀 것이고, 실제 5월치 원본 데이터로 정상 동작(이미지 생성, 통계 계산)까지 확인했습니다.
+`data_quality_charts.py` 1개 파일(현재 `taxi_pipeline/viz/quality_charts.py`). 노트북 Part 5 + Part 12 로직을 함수 하나로 뺀 것이고, 실제 5월치 원본 데이터로 정상 동작(이미지 생성, 통계 계산)까지 확인했습니다.
 
 ```python
-from data_quality_charts import generate_data_quality_charts
+from taxi_pipeline.viz.quality_charts import generate_data_quality_charts
 
 result = generate_data_quality_charts(
     df,                          # 그 달 원본(정제 전) DataFrame — pd.read_parquet(...) 결과 그대로
@@ -28,7 +28,7 @@ result = generate_data_quality_charts(
 ## 연동 방법 (예시 — 기존 report.md 생성 로직 안에서)
 
 ```python
-from data_quality_charts import generate_data_quality_charts
+from taxi_pipeline.viz.quality_charts import generate_data_quality_charts
 
 # 파이프라인이 이미 그 달 원본 df를 들고 있는 지점에서 호출
 dq = generate_data_quality_charts(df, output_dir="output", month_label=month_label)

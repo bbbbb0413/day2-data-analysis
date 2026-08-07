@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -11,9 +12,26 @@ from .steps.statistics import fmt_p
 from .quality import GateResult
 from .storage import RunManifest
 
-_DOW = ["월", "화", "수", "목", "금", "토", "일"]
+log = logging.getLogger(__name__)
+
 # [한계]로 시작하는 문장은 리포트의 한계 섹션에 모은다.
 LIMIT_PREFIX = "[한계]"
+
+
+def _pick(source: Any, *path: str) -> Any:
+    """중첩 지표를 읽고, 키가 없으면 경고를 남긴다.
+
+    단계가 내는 지표의 키 이름이 바뀌면 리포트는 예외 없이 해당 섹션만 조용히
+    비워 버린다(실제로 visualize_raw의 키가 바뀌었을 때 결측·품질 요약 두 줄이
+    말없이 사라졌다). 여기서 경고를 남겨 로그만 봐도 알 수 있게 한다.
+    """
+    cur = source
+    for key in path:
+        if not isinstance(cur, dict) or key not in cur:
+            log.warning("리포트: 지표 키 '%s' 없음 — 해당 섹션을 건너뛴다", ".".join(path))
+            return None
+        cur = cur[key]
+    return cur
 
 
 def _fmt_actual(v: Any) -> str:
@@ -39,11 +57,11 @@ def _table(headers: list[str], rows: list[list[Any]]) -> str:
 
 # 순서: 개요 → 데이터 이해 → 원본 시각화 → 발견한 이슈를 바탕으로 한 처리 기준 →
 # 핵심 결과 → 통계분석 → ML Pipeline → 자동화/한계
-def render_report_revised(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
-                          notes: dict[str, list[str]], gates: list[GateResult],
-                          rows_before: int,
-                          artifacts: dict[str, list[dict]] | None = None) -> str:
-    """개편된 순서(개요→데이터이해→원본시각화→처리기준→핵심결과→통계→모델→자동화)로 리포트를 만든다."""
+def render_report(cfg: Config, manifest: RunManifest, metrics: dict[str, dict],
+                  notes: dict[str, list[str]], gates: list[GateResult],
+                  rows_before: int,
+                  artifacts: dict[str, list[dict]] | None = None) -> str:
+    """개요→데이터이해→원본시각화→처리기준→핵심결과→통계→모델→자동화 순으로 리포트를 만든다."""
     L: list[str] = []
     add = L.append
     final_rows = manifest.steps[-1]["rows_out"] if manifest.steps else rows_before
@@ -102,16 +120,29 @@ def render_report_revised(cfg: Config, manifest: RunManifest, metrics: dict[str,
     add("")
     add("더 다양하고 자세한 시각화 자료는 아래 첨부된 파일을 참조한다.")
     add("")
-    add("1. `NYC_Yellow_Taxi_(2026-05)_원본_데이터_시각화_분석_보고서.pdf`")
-    add("2. `02_visualization_original.ipynb`")
+    add("1. `NYC_Yellow_Taxi_원본_데이터_시각화_분석_보고서.pdf`")
+    add("2. `visualization_original.ipynb`")
     add("")
     if vr := metrics.get("visualize_raw"):
-        if mp := vr.get("missing_pattern"):
-            add(f"- **결측치**: 5개 컬럼이 정확히 같은 {mp['rows_all_missing']:,}행"
-                f"({mp['missing_ratio']:.2%})에서 결측 — 구조적 결측")
-        if qi := vr.get("quality_issues"):
-            items = " · ".join(f"{k} {v:,}건" for k, v in qi["issues"].items())
-            add(f"- **데이터 품질**: {items}")
+        # 결측·품질이슈·IQR은 data_quality_charts 모듈이 낸 지표를 그대로 요약한다.
+        if dq := _pick(vr, "data_quality_handoff"):
+            if miss := dq.get("missing"):
+                first = next(iter(miss.values()))
+                if dq.get("missing_all_pairs_correlated"):
+                    add(f"- **결측치**: {len(miss)}개 컬럼이 정확히 같은 "
+                        f"{first['count']:,}행({first['pct']}%)에서 동시에 결측 — 구조적 결측")
+                else:
+                    items = " · ".join(f"{k} {v['count']:,}건({v['pct']}%)"
+                                       for k, v in miss.items())
+                    add(f"- **결측치**: {items}")
+            if issues := dq.get("quality_issues"):
+                items = " · ".join(f"{k} {v['count']:,}건({v['pct']}%)"
+                                   for k, v in issues.items())
+                add(f"- **데이터 품질**: {items}")
+            if iqr := dq.get("iqr_outliers"):
+                col, v = max(iqr.items(), key=lambda kv: kv[1].get("pct") or 0)
+                add(f"- **IQR 이상치**: 비율이 가장 큰 컬럼은 `{col}` {v['pct']}%"
+                    f"({v['count']:,}건, 정상범위 {v['lo']:.2f}~{v['hi']:.2f})")
         if ct := vr.get("correlation_trap"):
             add(f"- **극단 이상치와 상관관계 함정**: trip_distance 최댓값 "
                 f"{ct['trip_distance_max']:,.0f}mile. 원본 그대로면 r={ct['corr_raw']:.3f}"
@@ -238,7 +269,7 @@ def render_report_revised(cfg: Config, manifest: RunManifest, metrics: dict[str,
                   ["모델 ROC-AUC", f"{s['roc_auc']:.4f}"]]
     if gates:
         n_fail = sum(1 for g in gates if not g.passed)
-        rows5.append(["품질 게이트", f"{len(gates) - n_fail}개 중 {len(gates)}개 PASS"])
+        rows5.append(["품질 게이트", f"{len(gates)}개 중 {len(gates) - n_fail}개 PASS"])
     if manifest.duration_sec:
         rows5.append(["전체 실행 시간", f"{manifest.duration_sec}초"])
     add(_table(["항목", "결과"], rows5))
@@ -559,7 +590,7 @@ def render_report_revised(cfg: Config, manifest: RunManifest, metrics: dict[str,
             "안 된다.")
         add("")
     add("실행이 끝나면 최종 parquet과 함께 `metrics.json`, `manifest.json`, "
-        "`report_revised.md`, `model.joblib`을 저장한다. 또한 품질 게이트로 데이터 "
+        "`report.md`, `model.joblib`을 저장한다. 또한 품질 게이트로 데이터 "
         "건수, 보존율, 시각화, 통계와 모델 결과를 함께 검사한다. 이를 통해 이번 분석을 "
         "일회성 EDA로 끝내지 않고, 동일한 입력 조건과 전처리·평가 기준을 바탕으로 "
         "데이터 시점이 달라져도 분석 결과를 재현할 수 있도록 파이프라인을 구축하였다.")
