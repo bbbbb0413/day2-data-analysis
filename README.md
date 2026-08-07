@@ -18,7 +18,7 @@ pip install -r requirements.txt
 
 python run_pipeline.py --dry-run      # 무엇을 할지 먼저 확인
 python run_pipeline.py                # 전체 실행 (원본 자동 다운로드 포함, 약 22초)
-python tests/test_steps.py            # 단위 테스트 32개 (원본 없이 0.5초)
+python -m pytest tests/ -q            # 단위 테스트 48개 (원본 없이 2초)
 ```
 
 원본 데이터를 미리 받아둘 필요가 없다. `data/raw/`에 파일이 없으면
@@ -193,7 +193,17 @@ day2-data-analysis/
 │       ├── statistics.py       기술통계·상관계수·t-test
 │       └── model.py            ML Pipeline
 ├── docs/                       단계별 근거 문서 7개
-├── tests/test_steps.py         단위 테스트 32개
+├── tests/                      단위 테스트 48개 (원본 없이 2초)
+│   ├── helpers.py              공용 설정·입력 생성기 + 네이밍 규칙
+│   ├── test_missing.py         결측 진단·처리
+│   ├── test_duplicates.py      중복 유형 판정
+│   ├── test_outliers.py        이상치 필터
+│   ├── test_features.py        파생변수
+│   ├── test_statistics.py      p-value·효과크기 해석
+│   ├── test_model.py           누수 방지·전처리 위치
+│   ├── test_report.py          리포트 섹션이 조용히 비지 않는지
+│   ├── test_infra.py           설정·입력 확보·직렬화
+│   └── run_all.py              pytest 없는 환경용 러너
 ├── data/
 │   ├── raw/                    원본 (자동 다운로드, git 제외)
 │   ├── interim/                --checkpoint 시 중간 산출물
@@ -214,7 +224,7 @@ def 단계(df: DataFrame, cfg: Config) -> StepResult:
 
 파일 읽기·쓰기는 `storage.py`, 출력은 `report.py`가 맡는다. 이 분리 덕분에
 409만 행을 읽지 않고 3행짜리 DataFrame으로 로직을 테스트할 수 있다
-(테스트 32개가 0.5초에 끝난다).
+(테스트 48개가 2초에 끝난다).
 
 차트·모델처럼 파일이 되는 산출물은 `Artifact`로 **저장하는 방법만** 넘기고,
 경로는 runner가 정한다. 단계는 여전히 순수 함수로 남고 산출물은
