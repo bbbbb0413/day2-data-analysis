@@ -54,6 +54,10 @@ def setup_logging(level: str = "INFO", fmt: str = "text",
         fh.setFormatter(formatter)
         root.addHandler(fh)
 
+    # 라이브러리 내부 로그가 INFO로 쏟아지면 파이프라인 진행 상황이 묻힌다.
+    for noisy in ("matplotlib", "PIL", "kaleido", "choreographer"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
 
 def jsonable(obj: Any) -> Any:
     """NumPy와 Pandas 값을 JSON으로 저장할 수 있는 형태로 변환한다."""

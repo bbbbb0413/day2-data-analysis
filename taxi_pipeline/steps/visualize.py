@@ -30,11 +30,16 @@ def mpl_artifact(fig, name: str, caption: str, dpi: int) -> Artifact:
 
 
 def _plotly(fig, name: str, caption: str) -> Artifact:
-    """Plotly Figure를 HTML과 PNG 산출물로 변환한다."""
+    """Plotly Figure를 인터랙티브 HTML 산출물로 변환한다.
+
+    PNG 스냅샷은 만들지 않는다. kaleido가 정적 이미지를 뽑을 때 실제 Chrome을
+    띄워 렌더링하는데(차트 3개면 브라우저도 3번), 그렇게 만든 PNG를 참조하는
+    곳이 없었다. Chrome이 없는 서버·CI에서는 저장이 실패해 파이프라인 전체가
+    죽기까지 했다. 그림이 필요하면 HTML을 열어 내보내면 된다.
+    """
     def save(path: Path) -> None:
-        """Plotly 차트를 HTML과 PNG로 저장한다."""
-        fig.write_html(str(path.with_suffix(".html")), include_plotlyjs="cdn")
-        fig.write_image(str(path), scale=2)
+        """Plotly 차트를 HTML로 저장한다."""
+        fig.write_html(str(path), include_plotlyjs="cdn")
 
     return Artifact(name=name, save=save, caption=caption, kind="plotly")
 
@@ -365,7 +370,7 @@ def _chart_demand_heatmap(df: pd.DataFrame, cfg: Config):
                f"차이난다. 평일 출퇴근 시간대와 주말 심야에 수요가 몰린다.")
     metrics = {"peak": {"dayofweek": int(pd_), "hour": int(ph_), "trips": peak},
                "lowest": {"dayofweek": int(ld_), "hour": int(lh_), "trips": low}}
-    return _plotly(fig, "08_demand_heatmap.png", caption), metrics
+    return _plotly(fig, "08_demand_heatmap.html", caption), metrics
 
 
 # ============================================================================
@@ -400,7 +405,7 @@ def _chart_daily_trend(df: pd.DataFrame, cfg: Config):
     metrics = {"peak_date": str(peak), "peak_trips": int(g.loc[peak, "trips"]),
                "lowest_date": str(low), "lowest_trips": int(g.loc[low, "trips"]),
                "days": len(g)}
-    return _plotly(fig, "09_daily_trend.png", caption), metrics
+    return _plotly(fig, "09_daily_trend.html", caption), metrics
 
 
 # ============================================================================
@@ -439,7 +444,7 @@ def _chart_top_zones(df: pd.DataFrame, cfg: Config):
                f"Unknown(264)·구역 외(265)는 정제 단계에서 결측 처리되어 제외됐다.")
     metrics = {"top20_share": float(share.sum()),
                "top_zone": int(top.index[0]), "top_zone_trips": int(top.iloc[0])}
-    return _plotly(fig, "10_top_zones.png", caption), metrics
+    return _plotly(fig, "10_top_zones.html", caption), metrics
 
 
 # ============================================================================

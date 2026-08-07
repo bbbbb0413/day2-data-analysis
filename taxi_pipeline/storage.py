@@ -48,6 +48,8 @@ class RunManifest:
     duration_sec: float | None = None
     steps: list[dict[str, Any]] = field(default_factory=list)
     gate_failures: list[str] = field(default_factory=list)
+    # 저장에 실패한 차트·모델. 산출물이 왜 비었는지 추적하는 용도다.
+    artifact_failures: list[dict[str, str]] = field(default_factory=list)
     outputs: dict[str, str] = field(default_factory=dict)
 
     def to_json(self) -> str:

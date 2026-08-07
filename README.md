@@ -17,7 +17,7 @@
 pip install -r requirements.txt
 
 python run_pipeline.py --dry-run      # 무엇을 할지 먼저 확인
-python run_pipeline.py                # 전체 실행 (원본 자동 다운로드 포함, 약 46초)
+python run_pipeline.py                # 전체 실행 (원본 자동 다운로드 포함, 약 43초)
 python -m pytest tests/ -q            # 단위 테스트 48개 (원본 없이 2초)
 ```
 
@@ -111,7 +111,7 @@ df.groupby(df.tpep_pickup_datetime.dt.hour)["total_amount"].mean()
 | 파일 | 용도 | 언제 보는가 |
 |---|---|---|
 | `report.md` | 사람이 읽는 리포트 (약 330줄) | **여기부터 본다** |
-| `figures/` | 차트 PNG 18개 + 인터랙티브 HTML 3개 | 원본 EDA 차트 8개는 리포트에 자동 임베드 |
+| `figures/` | 차트 PNG 15개 + 인터랙티브 HTML 3개 | 원본 EDA 차트 8개는 리포트에 자동 임베드 |
 | `model.joblib` | 학습된 Pipeline (약 390KB) | 예측에 재사용할 때 |
 | `metrics.json` | 전 단계 지표 | 이전 실행과 비교할 때 |
 | `manifest.json` | 입력·설정 해시, 단계별 소요, 게이트 결과 | "이 결과가 뭘로 만들어졌나" 추적 |
@@ -134,8 +134,10 @@ open "$(ls -td outputs/runs/*/ | head -1)/report.md"
 | 7. ML Pipeline | 그래서 예측할 수 있나? |
 | 8. 자동화·품질 검증 및 한계 | 이 결과를 믿어도 되나? 어디까지 믿으면 되나? |
 
-3장에는 정제 전 원본 EDA 차트 8개가 임베드된다. 정제 후 차트 10개와 인터랙티브
-HTML 3개는 `figures/`에 생성되며, 별도 보고서에서 다룬다.
+3장에는 정제 전 원본 EDA 차트 8개가 임베드된다. 정제 후 Seaborn 차트 7개와
+Plotly 인터랙티브 HTML 3개는 `figures/`에 생성되며, 별도 보고서에서 다룬다.
+Plotly 차트는 HTML로만 저장한다 — PNG 스냅샷은 kaleido가 Chrome을 띄워야 해서
+없앴다(그림이 필요하면 HTML에서 내보내면 된다).
 
 각 단계가 낸 근거 문장이 그대로 실린다.
 
@@ -172,7 +174,7 @@ m["model"]["scores"]["f1"]        # 0.8206
 
 > **아직 없는 기능**: 저장한 중간 산출물을 **다시 읽어 이어서 실행하는
 > `--from <step>`은 구현돼 있지 않다.** 지금은 쓰기 전용 스냅샷이다.
-> 전체 실행이 46초라 재시작의 실익이 없어 미뤄뒀다.
+> 전체 실행이 43초라 재시작의 실익이 없어 미뤄뒀다.
 
 ---
 

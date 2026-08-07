@@ -106,14 +106,25 @@ def _begin_run(cfg: Config, src: Path, started: float) -> _Run:
 
 
 def _persist_artifacts(run: _Run, step_name: str, artifacts: list) -> None:
-    """단계가 만든 파일 산출물을 실행 폴더에 저장하고 경로를 기록한다."""
+    """단계가 만든 파일 산출물을 실행 폴더에 저장하고 경로를 기록한다.
+
+    차트 하나가 저장에 실패해도 파이프라인 전체를 죽이지 않는다. 지표와 분석은
+    이미 끝난 상태라 그것까지 버릴 이유가 없다. 대신 실패를 매니페스트에 남겨
+    산출물이 왜 비었는지 나중에 추적할 수 있게 한다.
+    """
     saved = []
     for art in artifacts:
         # 차트는 figures 폴더에 저장하고 나머지 산출물은 실행 폴더에 저장한다.
         rel = f"figures/{art.name}" if art.kind in ("figure", "plotly") else art.name
         target = run.store.dir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        art.save(target)
+        try:
+            art.save(target)
+        except Exception as e:
+            log.error("  산출물 저장 실패 %s — %s: %s", rel, type(e).__name__, e)
+            run.manifest.artifact_failures.append(
+                {"step": step_name, "name": art.name, "error": f"{type(e).__name__}: {e}"})
+            continue
         saved.append({"name": art.name, "kind": art.kind,
                       "caption": art.caption, "path": rel})
         log.info("  산출물 저장 %s", rel)

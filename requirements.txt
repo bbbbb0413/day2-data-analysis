@@ -25,11 +25,10 @@ polars>=1.0
 matplotlib>=3.8
 seaborn>=0.13
 plotly>=5.20
-# plotly 차트를 PNG로도 내보내기 위한 렌더링 엔진.
-#   HTML만 저장하면 report.md에는 링크만 남아 그림이 보이지 않는다.
-#   발표 없이 리포트가 유일한 전달 수단이므로, 인터랙티브 HTML(요건 증빙)과
-#   PNG 스냅샷(리포트 본문 표시)을 함께 만든다.
-kaleido>=1.0
+# kaleido(plotly -> PNG)는 제거했다. 정적 이미지를 뽑을 때 실제 Chrome을 띄우는데
+#   (차트 3개면 브라우저 3번, 약 6초) 그 PNG를 참조하는 곳이 없었고, Chrome이 없는
+#   서버·CI에서는 저장이 실패해 파이프라인 전체가 죽었다.
+#   Plotly 차트는 인터랙티브 HTML로만 저장한다.
 
 # --- 통계 분석 (채점 기준: scipy.stats.ttest_ind 로 t-test) ---
 scipy>=1.11
