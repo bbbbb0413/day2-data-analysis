@@ -17,7 +17,7 @@
 pip install -r requirements.txt
 
 python run_pipeline.py --dry-run      # 무엇을 할지 먼저 확인
-python run_pipeline.py                # 전체 실행 (원본 자동 다운로드 포함, 약 22초)
+python run_pipeline.py                # 전체 실행 (원본 자동 다운로드 포함, 약 46초)
 python -m pytest tests/ -q            # 단위 테스트 48개 (원본 없이 2초)
 ```
 
@@ -29,27 +29,32 @@ NYC TLC 공개 엔드포인트에서 자동으로 내려받는다(66.5MB, 약 1�
 
 ```
 품질 게이트: 14개 전부 통과
-최종 3,884,622행 (원본 대비 보존율 94.96%)
+최종 3,884,062행 (원본 대비 보존율 94.95%)
 리포트: outputs/runs/<run_id>/report.md
 ```
 
 ---
 
-## 파이프라인 8단계
+## 파이프라인 11단계
 
 ```
-1. compare_loaders   Pandas·Polars 로딩 결과 비교
-2. analyze_missing   결측 구조 진단 (삭제·대체가 왜 안 되는지 근거 수집)
-3. prepare_missing   위장 결측 변환 + record_source 플래그 (행 삭제 없음)
-4. deduplicate       중복 유형 판정 후 선택 제거
-5. filter_outliers   기간·소요시간·거리·금액 이상치 제거
-6. visualize         Seaborn 정적 7개 + Plotly 인터랙티브 3개 차트
-7. statistics        기술통계·상관계수·t-test와 p-value 해석
-8. model             Pipeline으로 전처리+모델 학습, 평가 지표, joblib 저장
+ 1. compare_loaders     Pandas·Polars 로딩 결과 비교
+ 2. analyze_missing     결측 구조 진단 (삭제·대체가 왜 안 되는지 근거 수집)
+ 3. visualize_raw       정제 전 원본 시각화 — 처리 기준의 근거를 발견한다
+ 4. prepare_missing     위장 결측 변환 + record_source 플래그 (행 삭제 없음)
+ 5. deduplicate         중복 유형 판정 후 선택 제거
+ 6. filter_outliers     기간·소요시간·거리·금액·속력 이상치 제거
+ 7. engineer_features   파생변수 추가 (is_rush_hour · is_airport_trip)
+ 8. validate_features   파생변수 보조 검증 (그룹 차이 t-test)
+ 9. visualize           Seaborn 정적 7개 + Plotly 인터랙티브 3개 차트
+10. statistics          기술통계·상관계수·t-test와 p-value 해석
+11. model               Pipeline으로 전처리+모델 학습, 평가 지표, joblib 저장
 ```
 
 `python run_pipeline.py list-steps`로 확인할 수 있다.
-1·2·6·7·8은 DataFrame을 바꾸지 않는 분석 단계이고, 3·4·5만 행을 변형한다.
+**행을 변형하는 단계는 4·5·6·7 네 개**뿐이고, 나머지 7개는 DataFrame을 그대로
+넘기는 분석 단계다. 정제 전(3)과 정제 후(9) 시각화를 나눈 이유는 목적이 달라서다 —
+3은 처리 기준을 *발견*하고, 9는 정제 결과를 *보여준다*.
 
 ---
 
@@ -57,14 +62,16 @@ NYC TLC 공개 엔드포인트에서 자동으로 내려받는다(66.5MB, 약 1�
 
 ### 1. 정제 데이터 — `data/processed/yellow_2026-05_clean.parquet`
 
-**76MB, 3,884,622행 × 21열** (원본 대비 94.96% 보존).
+**105MB, 3,884,062행 × 24열** (원본 대비 94.95% 보존).
+
+원본 20열 + `record_source`·`speed_kmh`·`is_rush_hour`·`is_airport_trip` 4개 파생 컬럼이다.
 
 ```python
 import pandas as pd
 df = pd.read_parquet("data/processed/yellow_2026-05_clean.parquet")
 ```
 
-**제거된 것 — 총 206,214행**
+**제거된 것 — 총 206,774행**
 
 | 구분 | 행 수 | 내용 |
 |---|---:|---|
@@ -72,17 +79,18 @@ df = pd.read_parquet("data/processed/yellow_2026-05_clean.parquet")
 | 거리 이상 | 108,631 | 0마일 또는 100마일 초과 |
 | 소요시간 이상 | 53,006 | 0초 이하 또는 6시간 초과 |
 | 금액 이상 | 1,875 | 총액 0 이하 또는 요금 음수 |
+| 속력 이상 | 560 | 200km/h 초과 — 거리·시간을 따로 봐서는 못 잡는 조합형 오기록 |
 | 기간 이탈 | 14 | 2026-05 밖 승차 |
 
 **남아 있는 것 — 오해하기 쉬운 부분**
 
-- **결측행 863,163행(22.2%)은 지우지 않았다.** `dropna()`를 하지 않는 것이
-  이 파이프라인의 핵심 결정이다. 대신 21번째 컬럼 `record_source`가
-  `full`(3,021,459) / `partial`(863,163)로 구분한다.
+- **결측행을 지우지 않았다.** 원본 결측 955,371행(23.35%)에 `dropna()`를
+  하지 않는 것이 이 파이프라인의 핵심 결정이다. 대신 `record_source` 컬럼이
+  정제 후 `full`(3,021,070) / `partial`(862,992)로 구분한다.
 - **결측은 오히려 늘었다.** 위장 결측 1,137,013건(`payment_type=0`,
   `RatecodeID=99`, `PULocationID=264/265` 등)을 NaN으로 바꿨기 때문이다.
   원본을 그대로 집계하면 이 값들이 정상값으로 섞여 평균을 오염시킨다.
-- **중복키가 12건 남아 있다.** 상쇄쌍도 2배도 아닌 "서로 다른 운행"으로
+- **부분키 중복 그룹 14개가 남아 있다.** 상쇄쌍도 2배도 아닌 "서로 다른 운행"으로
   판정한 그룹이라 의도적으로 유지했다.
 
 **쓸 때 주의**
@@ -154,7 +162,7 @@ m["deduplicate"]["naive_keep_first"]
 # {'positive_rows_dropped': 29370, 'negative_rows_dropped': 30, 'negative_rows_left': 14847}
 m["filter_outliers"]["vendors_wiped_out"]
 # [{'vendor': 7, 'rows': 51750, 'nonpositive_duration_ratio': 1.0}]
-m["model"]["scores"]["f1"]        # 0.8217
+m["model"]["scores"]["f1"]        # 0.8206
 ```
 
 ### 3. 중간 산출물 — `data/interim/` (선택)
@@ -164,7 +172,7 @@ m["model"]["scores"]["f1"]        # 0.8217
 
 > **아직 없는 기능**: 저장한 중간 산출물을 **다시 읽어 이어서 실행하는
 > `--from <step>`은 구현돼 있지 않다.** 지금은 쓰기 전용 스냅샷이다.
-> 전체 실행이 22초라 재시작의 실익이 없어 미뤄뒀다.
+> 전체 실행이 46초라 재시작의 실익이 없어 미뤄뒀다.
 
 ---
 
@@ -182,17 +190,23 @@ day2-data-analysis/
 │   ├── quality.py              품질 게이트 — 실패 시 종료 코드 1
 │   ├── report.py               지표 → 마크다운 리포트
 │   ├── runner.py               오케스트레이션 — 순서·시간·기록
+│   ├── viz/
+│   │   ├── style.py            차트 색상·라벨·폰트 (한곳에서 관리)
+│   │   └── quality_charts.py   결측·품질이슈·IQR 차트
 │   └── steps/
 │       ├── base.py             단계 계약 (StepResult, Artifact)
 │       ├── __init__.py         ★ 단계 목록 = 파이프라인의 목차
 │       ├── loaders.py          Pandas·Polars 로딩 비교
 │       ├── missing.py          결측
 │       ├── duplicates.py       중복
-│       ├── outliers.py         이상치
-│       ├── visualize.py        차트 10개
+│       ├── outliers.py         이상치 (기간·소요시간·거리·금액·속력)
+│       ├── features.py         파생변수 생성
+│       ├── feature_validation.py  파생변수 보조 검증
+│       ├── visualize_raw.py    정제 전 원본 차트 8개
+│       ├── visualize.py        정제 후 차트 10개
 │       ├── statistics.py       기술통계·상관계수·t-test
 │       └── model.py            ML Pipeline
-├── docs/                       단계별 근거 문서 7개
+├── docs/                       단계별 근거 문서 8개
 ├── tests/                      단위 테스트 48개 (원본 없이 2초)
 │   ├── helpers.py              공용 설정·입력 생성기 + 네이밍 규칙
 │   ├── test_missing.py         결측 진단·처리
@@ -287,8 +301,8 @@ t-검정 결과에 **p-value만 쓰지 않는다.** n이 266만이면 아주 작
 p < 0.001이 되어 "유의하다"가 변별력을 잃는다. 효과크기를 함께 낸다.
 
 ```
-장거리(≥5mi)(477,000건, 평균 17.16%) vs 단거리(<5mi)(2,182,779건, 평균 25.85%)
-— 차이 -8.69%p, t = -450.96, p < 2.23e-308, Cohen's d = -0.703(중간).
+장거리(≥5mi)(476,884건, 평균 17.17%) vs 단거리(<5mi)(2,182,634건, 평균 25.85%)
+— 차이 -8.69%p, t = -450.87, p < 2.23e-308, Cohen's d = -0.703(중간).
 유의하며 효과크기도 중간 이상이라 실질적으로 의미 있는 차이다.
 ```
 
@@ -298,13 +312,13 @@ p < 0.001이 되어 "유의하다"가 변별력을 잃는다. 효과크기를 �
 
 | 항목 | 값 | 이유 |
 |---|---|---|
-| 모집단 | 카드결제 2,659,779건 | 현금·무료·분쟁 결제는 팁이 **100% 0**으로 기록된다. 섞으면 "결제수단 맞히기"가 된다 |
-| 타깃 임계값 | 25% | 양성 56.13%로 균형. 15%면 "전부 양성" 모델이 정확도 0.79로 실제 모델(0.77)을 이긴다 |
+| 모집단 | 카드결제 2,659,518건 | 현금·무료·분쟁 결제는 팁이 **100% 0**으로 기록된다. 섞으면 "결제수단 맞히기"가 된다 |
+| 타깃 임계값 | 25% | 양성 56.14%로 균형. 15%면 "전부 양성" 모델이 정확도 0.79로 실제 모델(0.77)을 이긴다 |
 | 누수 제외 | `tip_amount`, `total_amount`, `payment_type` | `total_amount`는 팁을 포함한 합계라 역산된다 |
 | 학습 표본 | 50만 층화 추출 | 전체 266만 대비 ROC-AUC +0.0005인데 시간은 5.7배 |
 
-정확도 0.7703 / F1 0.8217 / ROC-AUC 0.7890
-(다수 클래스만 예측하는 기준선 0.5614 대비 **+0.2089**)
+정확도 0.7693 / F1 0.8206 / ROC-AUC 0.7877
+(다수 클래스만 예측하는 기준선 0.5614 대비 **+0.2079**)
 
 ---
 
@@ -365,8 +379,8 @@ Airflow에서는 `BashOperator`로 같은 명령을 걸면 되고, 단계별로 
 
 | 설정 | 최종 행 수 | VendorID=7 | 적합한 분석 |
 |---|---:|---|---|
-| `duration_policy = "drop"` (기본) | 3,884,622 (94.96%) | 전량 삭제 | 소요시간·속도 |
-| `duration_policy = "flag"` | 3,936,456 (96.23%) | **보존** | 운행량·요금·존 |
+| `duration_policy = "drop"` (기본) | 3,884,062 (94.95%) | 전량 삭제 | 소요시간·속도 |
+| `duration_policy = "flag"` | 3,935,896 (96.21%) | **보존** | 운행량·요금·존 |
 
 `flag`는 삭제 대신 `duration_valid` 컬럼을 달아 행을 남긴다. 소요시간을 쓰는
 집계에서만 `df[df.duration_valid]`로 걸러 쓰면 된다.
@@ -413,7 +427,7 @@ Airflow에서는 `BashOperator`로 같은 명령을 걸면 되고, 단계별로 
 
 | 경로 | 이유 |
 |---|---|
-| `data/` | 원본 66.5MB + 정제 결과 76MB. 입력물이지 코드가 아니다 |
+| `data/` | 원본 66.5MB + 정제 결과 105MB. 입력물이지 코드가 아니다 |
 | `outputs/` | `run_pipeline.py`로 재생성된다 |
 | `logs/` | cron 로그 |
 | `.venv/`, `__pycache__/` | 환경·캐시 |
