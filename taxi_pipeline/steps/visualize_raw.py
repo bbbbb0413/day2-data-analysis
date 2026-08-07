@@ -199,12 +199,12 @@ def visualize_raw_step(df: pd.DataFrame, cfg: Config) -> StepResult:
         metrics["data_quality_handoff"] = dq_stats
         if dq_stats.get("missing_all_pairs_correlated"):
             notes.append(
-                "[원본EDA] (노은서 handoff) 5개 결측 컬럼이 정확히 같은 건수만큼 결측 "
+                "[원본EDA] 5개 결측 컬럼이 정확히 같은 건수만큼 결측 "
                 "— 동일 행에서 함께 비어있다.")
         if iqr := dq_stats.get("iqr_outliers"):
             top_col, top_v = max(iqr.items(), key=lambda kv: kv[1].get("pct") or 0)
             notes.append(
-                f"[원본EDA] (노은서 handoff) IQR 기준 이상치 비율이 가장 큰 컬럼: "
+                f"[원본EDA] IQR 기준 이상치 비율이 가장 큰 컬럼: "
                 f"{top_col} {top_v['pct']}%.")
 
     # ---- 나머지 원본 시각화(상관관계 함정/시간대/결제수단) -----------------------
