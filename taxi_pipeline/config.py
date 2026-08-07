@@ -144,10 +144,13 @@ def load_config(path: str | Path, root: Path | None = None) -> Config:
         raw: dict[str, Any] = tomllib.load(f)
 
     root = Path(root).resolve() if root else path.parent.parent
+    month = raw["project"]["month"]
     p = raw["paths"]
     paths = Paths(
         root=root,
-        raw=root / p["raw"],
+        # url_template과 동일하게 {month}를 치환한다 — 안 그러면 month만 바꿨을 때
+        # 예전 달 raw 파일을 조용히 재사용해 기간 필터가 거의 모든 행을 걸러낸다.
+        raw=root / p["raw"].format(month=month),
         interim=root / p["interim"],
         processed=root / p["processed"],
         runs=root / p["runs"],

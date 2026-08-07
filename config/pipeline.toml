@@ -38,7 +38,7 @@ timeout_sec = 120
 # 경로 — 모두 프로젝트 루트 기준 상대경로. 실행 위치와 무관하게 동작한다.
 #-----------------------------------------------------------------------------
 [paths]
-raw       = "data/raw/yellow_tripdata_2026-05.parquet"
+raw       = "data/raw/yellow_tripdata_{month}.parquet"   # {month}는 project.month로 치환된다
 interim   = "data/interim"     # --checkpoint 시 단계별 중간 산출물
 processed = "data/processed"   # 최종 정제 결과
 runs      = "outputs/runs"     # 실행별 메트릭·매니페스트·리포트
